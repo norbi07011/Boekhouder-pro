@@ -1,0 +1,7 @@
+{
+  "name": "Boekhouder Connect",
+  "description": "A comprehensive task management and communication platform for accounting teams in the Netherlands, supporting Polish and Turkish languages. Features task tracking and tax deadlines.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
