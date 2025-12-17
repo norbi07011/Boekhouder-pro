@@ -1,8 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { Task, Language, User, TaskStatus, TaskTemplate, TaskCategory } from '../types';
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, X, Trash2, Save, User as UserIcon, Clock, Target, AlertTriangle, Filter, Wand2, Briefcase, LayoutTemplate, Timer } from 'lucide-react';
-import { DICTIONARY, DUTCH_TAX_DEADLINES } from '../constants';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Plus, X, Trash2, Save, User as UserIcon, Clock, Target, AlertTriangle, Filter, Wand2, Briefcase, LayoutTemplate, Timer, Loader2, Check } from 'lucide-react';
+import { DICTIONARY } from '../constants';
+import { tasksService } from '../src/services/tasksService';
+import { dashboardService, TaxDeadline } from '../src/services/dashboardService';
 
 interface CalendarProps {
   tasks: Task[];
@@ -30,23 +32,122 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
     status: TaskStatus.TODO,
     priority: 'Medium',
     assigneeId: '',
+    assigneeIds: [],
     dueDate: new Date().toISOString().split('T')[0],
     dueTime: '',
     category: 'General',
     estimatedHours: 0
   });
 
+  // Loading states
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Tax deadlines from database
+  const [taxDeadlines, setTaxDeadlines] = useState<TaxDeadline[]>([]);
+
   // Smart Builder State
   const [clientName, setClientName] = useState('');
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString());
+  const [selectedWeek, setSelectedWeek] = useState('');
 
   const t = DICTIONARY[language];
+
+  // Get ISO week number (used in Netherlands)
+  const getWeekNumber = (date: Date): number => {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  };
+
+  // Get date from week number and year
+  const getDateFromWeek = (week: number, year: number): Date => {
+    const jan4 = new Date(year, 0, 4);
+    const dayOfWeek = jan4.getDay() || 7;
+    const monday = new Date(jan4);
+    monday.setDate(jan4.getDate() - dayOfWeek + 1 + (week - 1) * 7);
+    return monday;
+  };
+
+  // Generate weeks for selected year (for form dropdown)
+  const getWeeksInYear = (year: number): number[] => {
+    const weeks: number[] = [];
+    const dec28 = new Date(year, 11, 28);
+    const maxWeek = getWeekNumber(dec28);
+    for (let i = 1; i <= maxWeek; i++) {
+      weeks.push(i);
+    }
+    return weeks;
+  };
+
+  // Get week numbers for current month view
+  const getWeekRowsForMonth = (): { weekNum: number; days: (number | null)[] }[] => {
+    const weeks: { weekNum: number; days: (number | null)[] }[] = [];
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const daysInMonth = getDaysInMonth(currentDate);
+    const firstDay = getFirstDayOfMonth(currentDate);
+    
+    let currentDay = 1;
+    let weekIndex = 0;
+    
+    // First week
+    const firstDayDate = new Date(year, month, 1);
+    let currentWeekNum = getWeekNumber(firstDayDate);
+    let weekDays: (number | null)[] = [];
+    
+    // Fill empty days at start
+    for (let i = 0; i < firstDay; i++) {
+      weekDays.push(null);
+    }
+    
+    // Fill days
+    while (currentDay <= daysInMonth) {
+      weekDays.push(currentDay);
+      
+      if (weekDays.length === 7) {
+        weeks.push({ weekNum: currentWeekNum, days: weekDays });
+        weekDays = [];
+        currentDay++;
+        if (currentDay <= daysInMonth) {
+          currentWeekNum = getWeekNumber(new Date(year, month, currentDay));
+        }
+      } else {
+        currentDay++;
+      }
+    }
+    
+    // Last week (fill remaining)
+    if (weekDays.length > 0) {
+      while (weekDays.length < 7) {
+        weekDays.push(null);
+      }
+      weeks.push({ weekNum: currentWeekNum, days: weekDays });
+    }
+    
+    return weeks;
+  };
 
   // Dynamic Year Generation
   const currentYear = new Date().getFullYear();
   const futureYears = [currentYear, currentYear + 1, currentYear + 2, currentYear + 3];
+
+  // Load tax deadlines from database
+  useEffect(() => {
+    const loadDeadlines = async () => {
+      try {
+        const deadlines = await dashboardService.getTaxDeadlines();
+        setTaxDeadlines(deadlines);
+      } catch (error) {
+        console.error('Error loading tax deadlines:', error);
+      }
+    };
+    loadDeadlines();
+  }, []);
 
   // Logic to auto-generate title based on smart inputs
   useEffect(() => {
@@ -127,9 +228,10 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
         }
     }
 
-    let dayDeadlines: any[] = [];
+    // Use deadlines from database instead of static constants
+    let dayDeadlines: TaxDeadline[] = [];
     if (viewFilter === 'ALL' || viewFilter === 'DEADLINES') {
-        dayDeadlines = DUTCH_TAX_DEADLINES.filter(d => d.date === dateStr);
+        dayDeadlines = taxDeadlines.filter(d => d.date === dateStr);
     }
 
     return { dayTasks, dayDeadlines };
@@ -161,6 +263,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
       status: TaskStatus.TODO,
       priority: 'Medium',
       assigneeId: currentUser.id,
+      assigneeIds: [currentUser.id],
       dueDate: dateStr,
       dueTime: '',
       category: 'General',
@@ -184,30 +287,98 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
     setIsModalOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTask.title) return;
+    if (!editingTask.title || isSaving) return;
 
-    if (isEditing && editingTask.id) {
-      // Update existing
-      setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...editingTask } as Task : t));
-    } else {
-      // Create new
-      const newTask: Task = {
-        ...(editingTask as Task),
-        id: Math.random().toString(36).substr(2, 9),
-        tags: [],
-        attachments: editingTask.attachments || []
-      };
-      setTasks([...tasks, newTask]);
+    setIsSaving(true);
+    try {
+      if (isEditing && editingTask.id) {
+        // Update existing task in database
+        const updated = await tasksService.update(editingTask.id, {
+          title: editingTask.title,
+          description: editingTask.description || null,
+          assignee_id: editingTask.assigneeIds?.[0] || editingTask.assigneeId || null,
+          due_date: editingTask.dueDate || null,
+          due_time: editingTask.dueTime || null,
+          status: editingTask.status as any,
+          priority: editingTask.priority as any,
+          category: editingTask.category as any,
+          estimated_hours: editingTask.estimatedHours || null
+        });
+        
+        // Save multiple assignees to task_assignees table
+        if (editingTask.assigneeIds && editingTask.assigneeIds.length > 0) {
+          await tasksService.setAssignees(editingTask.id, editingTask.assigneeIds);
+        }
+        
+        // Update local state
+        setTasks(tasks.map(t => t.id === editingTask.id ? {
+          ...t,
+          ...editingTask
+        } as Task : t));
+      } else {
+        // Create new task in database
+        const created = await tasksService.create({
+          title: editingTask.title!,
+          description: editingTask.description || null,
+          assignee_id: editingTask.assigneeIds?.[0] || editingTask.assigneeId || null,
+          due_date: editingTask.dueDate || null,
+          due_time: editingTask.dueTime || null,
+          status: (editingTask.status as any) || 'TODO',
+          priority: (editingTask.priority as any) || 'Medium',
+          category: (editingTask.category as any) || 'General',
+          estimated_hours: editingTask.estimatedHours || null
+        });
+        
+        // Save multiple assignees to task_assignees table
+        if (editingTask.assigneeIds && editingTask.assigneeIds.length > 0) {
+          await tasksService.setAssignees(created.id, editingTask.assigneeIds);
+        }
+        
+        // Add to local state (real-time will also catch this)
+        const newTask: Task = {
+          id: created.id,
+          title: created.title,
+          description: created.description || '',
+          assigneeId: created.assignee_id || '',
+          assigneeIds: editingTask.assigneeIds || [],
+          dueDate: created.due_date || '',
+          dueTime: created.due_time || '',
+          status: (created.status as TaskStatus) || TaskStatus.TODO,
+          priority: created.priority || 'Medium',
+          category: created.category || 'General',
+          estimatedHours: Number(created.estimated_hours) || 0,
+          tags: [],
+          attachments: []
+        };
+        setTasks(prev => {
+          if (prev.some(t => t.id === newTask.id)) return prev;
+          return [...prev, newTask];
+        });
+      }
+      setIsModalOpen(false);
+    } catch (error) {
+      console.error('Error saving task:', error);
+      alert('Failed to save task. Please try again.');
+    } finally {
+      setIsSaving(false);
     }
-    setIsModalOpen(false);
   };
 
-  const handleDelete = () => {
-    if (editingTask.id) {
+  const handleDelete = async () => {
+    if (!editingTask.id || isDeleting) return;
+    
+    setIsDeleting(true);
+    try {
+      await tasksService.delete(editingTask.id);
       setTasks(tasks.filter(t => t.id !== editingTask.id));
       setIsModalOpen(false);
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      alert('Failed to delete task. Please try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -282,10 +453,10 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                 <Target className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
                 <div className="h-6 w-px bg-slate-300/50 mx-1"></div>
-                <button onClick={prevMonth} className="p-1.5 sm:p-2 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all shadow-sm hover:shadow-md">
+                <button onClick={prevMonth} className="p-1.5 sm:p-2 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all shadow-sm hover:shadow-md" title="Poprzedni miesiąc">
                 <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
-                <button onClick={nextMonth} className="p-1.5 sm:p-2 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all shadow-sm hover:shadow-md">
+                <button onClick={nextMonth} className="p-1.5 sm:p-2 rounded-lg hover:bg-white text-slate-600 hover:text-slate-900 transition-all shadow-sm hover:shadow-md" title="Następny miesiąc">
                 <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
              </div>
@@ -314,8 +485,11 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
           </div>
         </div>
 
-        {/* Days Header */}
-        <div className="grid grid-cols-7 border-b border-white/10 bg-slate-50/20">
+        {/* Days Header with Week column */}
+        <div className="grid grid-cols-8 border-b border-white/10 bg-slate-50/20">
+          <div className="py-2 sm:py-4 text-center text-[10px] sm:text-xs font-bold text-blue-600 uppercase tracking-widest shadow-sm bg-blue-50/50">
+            {t.week || 'Week'}
+          </div>
           {weekDays.map((day, idx) => (
             <div key={idx} className="py-2 sm:py-4 text-center text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest shadow-sm">
               {day}
@@ -323,18 +497,29 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
           ))}
         </div>
 
-        {/* 3D Tile Grid */}
-        <div className="flex-1 p-2 sm:p-4 grid grid-cols-7 grid-rows-5 gap-1 sm:gap-3 overflow-y-auto">
-          {days.map((day, idx) => {
-            if (!day) return <div key={idx} className="rounded-xl border border-transparent" />;
+        {/* 3D Tile Grid with Week Numbers */}
+        <div className="flex-1 p-2 sm:p-4 overflow-y-auto">
+          {getWeekRowsForMonth().map((weekRow, rowIdx) => (
+            <div key={rowIdx} className="grid grid-cols-8 gap-1 sm:gap-3 mb-1 sm:mb-3">
+              {/* Week Number Cell */}
+              <div className="rounded-xl sm:rounded-2xl p-1 sm:p-3 flex items-center justify-center bg-gradient-to-br from-blue-100 to-blue-50 border border-blue-200/60 shadow-sm min-h-[60px] sm:min-h-[100px]">
+                <div className="text-center">
+                  <span className="text-[8px] sm:text-[10px] font-bold text-blue-400 uppercase block">{t.week || 'Wk'}</span>
+                  <span className="text-lg sm:text-2xl font-black text-blue-600">{weekRow.weekNum}</span>
+                </div>
+              </div>
+              
+              {/* Days in this week */}
+              {weekRow.days.map((day, dayIdx) => {
+                if (!day) return <div key={dayIdx} className="rounded-xl border border-transparent min-h-[60px] sm:min-h-[100px]" />;
             
-            const { dayTasks, dayDeadlines } = getContentForDay(day);
-            const today = isToday(day);
+                const { dayTasks, dayDeadlines } = getContentForDay(day);
+                const today = isToday(day);
 
-            return (
-              <div 
-                key={idx} 
-                onClick={() => handleDayClick(day)}
+                return (
+                  <div 
+                    key={dayIdx} 
+                    onClick={() => handleDayClick(day)}
                 className={`
                   relative rounded-xl sm:rounded-2xl p-1 sm:p-3 flex flex-col justify-between transition-all duration-300 ease-out group cursor-pointer
                   border border-white/60 shadow-sm min-h-[60px] sm:min-h-[100px]
@@ -413,9 +598,11 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
 
                 {/* Bottom Highlight Line for 3D feel */}
                 <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-blue-400/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            );
-          })}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -433,7 +620,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                     {isEditing ? t.edit_task : t.new_task}
                  </h3>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors" title="Zamknij">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -461,7 +648,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                     </div>
 
                     <div className="grid grid-cols-12 gap-3">
-                        <div className="col-span-12 sm:col-span-6">
+                        <div className="col-span-12 sm:col-span-4">
                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t.client_name}</label>
                              <div className="relative">
                                 <Briefcase className="absolute left-2.5 top-2.5 w-4 h-4 text-slate-400" />
@@ -474,12 +661,13 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                                 />
                              </div>
                         </div>
-                        <div className="col-span-6 sm:col-span-3">
+                        <div className="col-span-4 sm:col-span-2">
                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t.period}</label>
                              <select 
                                 value={selectedPeriod}
                                 onChange={(e) => setSelectedPeriod(e.target.value)}
                                 className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                title="Wybierz okres"
                              >
                                 <option value="">-</option>
                                 <option value="Q1">Q1</option>
@@ -491,15 +679,43 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                                 <option value="Mar">Mar</option>
                              </select>
                         </div>
-                        <div className="col-span-6 sm:col-span-3">
+                        <div className="col-span-4 sm:col-span-2">
                              <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">{t.year}</label>
                              <select 
                                 value={selectedYear}
-                                onChange={(e) => setSelectedYear(e.target.value)}
+                                onChange={(e) => {
+                                  setSelectedYear(e.target.value);
+                                  setSelectedWeek(''); // Reset week when year changes
+                                }}
                                 className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                title="Wybierz rok"
                              >
                                 {futureYears.map(yr => (
                                     <option key={yr} value={yr}>{yr}</option>
+                                ))}
+                             </select>
+                        </div>
+                        <div className="col-span-4 sm:col-span-4">
+                             <label className="block text-[10px] font-bold text-blue-500 uppercase mb-1">📅 {t.week || 'Week'} (NL)</label>
+                             <select 
+                                value={selectedWeek}
+                                onChange={(e) => {
+                                  setSelectedWeek(e.target.value);
+                                  if (e.target.value) {
+                                    // Auto-set due date to Monday of selected week
+                                    const weekNum = parseInt(e.target.value);
+                                    const year = parseInt(selectedYear);
+                                    const monday = getDateFromWeek(weekNum, year);
+                                    const dateStr = monday.toISOString().split('T')[0];
+                                    setEditingTask(prev => ({ ...prev, dueDate: dateStr }));
+                                  }
+                                }}
+                                className="w-full bg-blue-50 border border-blue-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-blue-700"
+                                title="Wybierz tydzień"
+                             >
+                                <option value="">-- {t.select_week || 'Select Week'} --</option>
+                                {getWeeksInYear(parseInt(selectedYear)).map(wk => (
+                                    <option key={wk} value={wk}>Week {wk}</option>
                                 ))}
                              </select>
                         </div>
@@ -528,6 +744,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                             value={editingTask.category || 'General'}
                             onChange={e => setEditingTask({...editingTask, category: e.target.value as TaskCategory})}
                             className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-slate-700"
+                            title="Wybierz kategorię"
                           >
                              <option value="General">{t.cat_general}</option>
                              <option value="Tax">{t.cat_tax}</option>
@@ -552,6 +769,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                           value={editingTask.dueDate}
                           onChange={e => setEditingTask({...editingTask, dueDate: e.target.value})}
                           className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer font-medium text-slate-700"
+                          title="Termin wykonania"
                        />
                     </div>
                  </div>
@@ -564,6 +782,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                           value={editingTask.dueTime}
                           onChange={e => setEditingTask({...editingTask, dueTime: e.target.value})}
                           className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer font-medium text-slate-700"
+                          title="Godzina"
                        />
                     </div>
                  </div>
@@ -578,6 +797,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                         value={editingTask.priority}
                         onChange={e => setEditingTask({...editingTask, priority: e.target.value as any})}
                         className="w-full bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none px-4 font-medium text-slate-700"
+                        title="Priorytet"
                         >
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
@@ -594,6 +814,7 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                        value={editingTask.status}
                        onChange={e => setEditingTask({...editingTask, status: e.target.value as any})}
                        className="w-full bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700"
+                       title="Status"
                     >
                        {Object.values(TaskStatus).map(s => (
                          <option key={s} value={s}>{s.replace('_', ' ')}</option>
@@ -618,19 +839,34 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
               </div>
 
               <div>
-                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t.assignee}</label>
-                   <div className="relative group">
-                      <UserIcon className="absolute left-3 top-3 w-4.5 h-4.5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                      <select
-                         value={editingTask.assigneeId || ''}
-                         onChange={e => setEditingTask({...editingTask, assigneeId: e.target.value})}
-                         className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none appearance-none transition-all font-medium text-slate-700"
-                      >
-                         <option value="">-</option>
-                         {users.map(u => (
-                           <option key={u.id} value={u.id}>{u.name}</option>
-                         ))}
-                      </select>
+                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t.assignee} ({(editingTask.assigneeIds?.length || 0)} wybrano)</label>
+                   <div className="bg-white border border-slate-300 rounded-xl p-3 max-h-40 overflow-y-auto">
+                      {users.map(u => {
+                        const isSelected = editingTask.assigneeIds?.includes(u.id) || false;
+                        return (
+                          <label 
+                            key={u.id} 
+                            className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const currentIds = editingTask.assigneeIds || [];
+                                if (e.target.checked) {
+                                  setEditingTask({...editingTask, assigneeIds: [...currentIds, u.id]});
+                                } else {
+                                  setEditingTask({...editingTask, assigneeIds: currentIds.filter(id => id !== u.id)});
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                            />
+                            <img src={u.avatar} alt={u.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
+                            <span className="text-sm font-medium text-slate-700">{u.name}</span>
+                            {isSelected && <Check className="w-4 h-4 text-blue-600 ml-auto" />}
+                          </label>
+                        );
+                      })}
                    </div>
               </div>
 
@@ -649,10 +885,11 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                     <button 
                        type="button" 
                        onClick={handleDelete}
-                       className="text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-lg transition-colors flex items-center text-sm font-bold"
+                       disabled={isDeleting || isSaving}
+                       className="text-red-500 hover:text-red-700 hover:bg-red-50 px-4 py-2 rounded-lg transition-colors flex items-center text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                       <Trash2 className="w-4 h-4 mr-2" />
-                       <span className="hidden sm:inline">{t.delete_task}</span>
+                       {isDeleting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                       <span className="hidden sm:inline">{isDeleting ? 'Deleting...' : t.delete_task}</span>
                     </button>
                  ) : <div></div>}
                  
@@ -660,16 +897,18 @@ export const Calendar: React.FC<CalendarProps> = ({ tasks, setTasks, users, curr
                     <button 
                        type="button"
                        onClick={() => setIsModalOpen(false)}
-                       className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-bold transition-colors"
+                       disabled={isSaving || isDeleting}
+                       className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
                     >
                        {t.cancel}
                     </button>
                     <button 
                        type="submit"
-                       className="px-6 py-2.5 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-xl shadow-lg shadow-slate-900/20 hover:shadow-slate-900/40 flex items-center text-sm font-bold transition-all transform hover:-translate-y-0.5"
+                       disabled={isSaving || isDeleting}
+                       className="px-6 py-2.5 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-xl shadow-lg shadow-slate-900/20 hover:shadow-slate-900/40 flex items-center text-sm font-bold transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                     >
-                       <Save className="w-4 h-4 mr-2" />
-                       {t.save_changes}
+                       {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                       {isSaving ? 'Saving...' : t.save_changes}
                     </button>
                  </div>
               </div>

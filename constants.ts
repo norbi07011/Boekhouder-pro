@@ -252,7 +252,9 @@ export const DICTIONARY = {
     enable_2fa: 'Włącz 2FA, aby chronić dane finansowe klientów.',
     basic_info: 'Informacje Podstawowe',
     contact_location: 'Kontakt i Lokalizacja',
-    manage_deadlines: 'Zarządzaj pracą i terminami'
+    manage_deadlines: 'Zarządzaj pracą i terminami',
+    week: 'Tydzień',
+    select_week: 'Wybierz Tydzień'
   },
   TR: {
     dashboard: 'Panel',
@@ -377,7 +379,9 @@ export const DICTIONARY = {
     enable_2fa: 'Müşteri finansal verilerini korumak için 2FA\'yı etkinleştirin.',
     basic_info: 'Temel Bilgiler',
     contact_location: 'İletişim ve Konum',
-    manage_deadlines: 'İşleri ve vadeleri yönetin'
+    manage_deadlines: 'İşleri ve vadeleri yönetin',
+    week: 'Hafta',
+    select_week: 'Hafta Seç'
   },
   NL: {
     dashboard: 'Dashboard',
@@ -502,7 +506,9 @@ export const DICTIONARY = {
     enable_2fa: 'Schakel 2FA in om financiële klantgegevens te beschermen.',
     basic_info: 'Basisinformatie',
     contact_location: 'Contact & Locatie',
-    manage_deadlines: 'Beheer werk en deadlines'
+    manage_deadlines: 'Beheer werk en deadlines',
+    week: 'Week',
+    select_week: 'Selecteer Week'
   }
 };
 

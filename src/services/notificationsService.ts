@@ -4,13 +4,13 @@ import type { Notification, UserSettings } from '../types/database.types';
 export const notificationsService = {
   // Get all notifications for current user
   async getAll(): Promise<Notification[]> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .order('created_at', { ascending: false })
       .limit(50);
 
@@ -20,13 +20,13 @@ export const notificationsService = {
 
   // Get unread notifications
   async getUnread(): Promise<Notification[]> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .eq('is_read', false)
       .order('created_at', { ascending: false });
 
@@ -36,13 +36,13 @@ export const notificationsService = {
 
   // Get unread count
   async getUnreadCount(): Promise<number> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return 0;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return 0;
 
     const { count, error } = await supabase
       .from('notifications')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .eq('is_read', false);
 
     if (error) throw error;
@@ -61,13 +61,13 @@ export const notificationsService = {
 
   // Mark all as read
   async markAllAsRead(): Promise<void> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true })
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .eq('is_read', false);
 
     if (error) throw error;
@@ -75,18 +75,18 @@ export const notificationsService = {
 
   // Subscribe to new notifications
   subscribeToNotifications(callback: (notification: Notification) => void) {
-    return supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return null;
+    return supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.user) return null;
 
       return supabase
-        .channel(`notifications:${user.id}`)
+        .channel(`notifications:${session.user.id}`)
         .on(
           'postgres_changes',
           {
             event: 'INSERT',
             schema: 'public',
             table: 'notifications',
-            filter: `user_id=eq.${user.id}`
+            filter: `user_id=eq.${session.user.id}`
           },
           (payload) => {
             callback(payload.new as Notification);
@@ -94,19 +94,44 @@ export const notificationsService = {
         )
         .subscribe();
     });
+  },
+
+  // Create notification (for manual notification sending)
+  async create(notification: {
+    user_id: string;
+    type: 'task_assigned' | 'task_due' | 'message' | 'document' | 'system';
+    title: string;
+    body?: string;
+    link?: string;
+  }): Promise<void> {
+    const { error } = await supabase
+      .from('notifications')
+      .insert(notification);
+
+    if (error) throw error;
+  },
+
+  // Delete notification
+  async delete(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('notifications')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
   }
 };
 
 export const settingsService = {
   // Get current user settings
   async get(): Promise<UserSettings | null> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
 
     const { data, error } = await supabase
       .from('user_settings')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', session.user.id)
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
@@ -115,14 +140,14 @@ export const settingsService = {
 
   // Update settings
   async update(settings: Partial<UserSettings>): Promise<UserSettings> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     // Upsert settings
     const { data, error } = await supabase
       .from('user_settings')
       .upsert({
-        user_id: user.id,
+        user_id: session.user.id,
         ...settings
       })
       .select()

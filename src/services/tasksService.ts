@@ -1,14 +1,18 @@
 import { supabase } from '../lib/supabase';
 import type { Task, InsertTables, UpdateTables } from '../types/database.types';
+import { notificationsService } from './notificationsService';
 
 export const tasksService = {
-  // Get all tasks for current organization
+  // Get all tasks for current organization (with multiple assignees)
   async getAll(): Promise<Task[]> {
     const { data, error } = await supabase
       .from('tasks')
       .select(`
         *,
         assignee:profiles!tasks_assignee_id_fkey(id, name, avatar_url),
+        assignees:task_assignees(
+          user:profiles!task_assignees_user_id_fkey(id, name, avatar_url)
+        ),
         client:clients(id, name),
         attachments:task_attachments(*)
       `)
@@ -36,8 +40,8 @@ export const tasksService = {
 
   // Get tasks assigned to current user
   async getMyTasks(): Promise<Task[]> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const { data, error } = await supabase
       .from('tasks')
@@ -47,7 +51,7 @@ export const tasksService = {
         client:clients(id, name),
         attachments:task_attachments(*)
       `)
-      .eq('assignee_id', user.id)
+      .eq('assignee_id', session.user.id)
       .order('due_date', { ascending: true });
 
     if (error) throw error;
@@ -89,16 +93,16 @@ export const tasksService = {
     return data;
   },
 
-  // Create new task
-  async create(task: InsertTables<'tasks'>): Promise<Task> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+  // Create new task (organization_id and created_by are added automatically)
+  async create(task: Omit<InsertTables<'tasks'>, 'created_by' | 'organization_id'>): Promise<Task> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     // Get user's organization
     const { data: profile } = await supabase
       .from('profiles')
       .select('organization_id')
-      .eq('id', user.id)
+      .eq('id', session.user.id)
       .single();
 
     if (!profile?.organization_id) throw new Error('No organization found');
@@ -108,12 +112,28 @@ export const tasksService = {
       .insert({
         ...task,
         organization_id: profile.organization_id,
-        created_by: user.id
+        created_by: session.user.id
       })
       .select()
       .single();
 
     if (error) throw error;
+
+    // Send notification to assignee if task is assigned
+    if (data.assignee_id && data.assignee_id !== session.user.id) {
+      try {
+        await notificationsService.create({
+          user_id: data.assignee_id,
+          type: 'task_assigned',
+          title: 'Nowe zadanie przypisane',
+          body: `Masz nowe zadanie: ${data.title}`,
+          link: 'tasks'
+        });
+      } catch (notifError) {
+        console.error('Error sending notification:', notifError);
+      }
+    }
+
     return data;
   },
 
@@ -147,7 +167,25 @@ export const tasksService = {
 
   // Assign task to user
   async assign(taskId: string, userId: string | null): Promise<Task> {
-    return this.update(taskId, { assignee_id: userId });
+    const { data: { session } } = await supabase.auth.getSession();
+    const result = await this.update(taskId, { assignee_id: userId });
+    
+    // Send notification to new assignee
+    if (userId && session?.user && userId !== session.user.id) {
+      try {
+        await notificationsService.create({
+          user_id: userId,
+          type: 'task_assigned',
+          title: 'Zadanie przypisane do Ciebie',
+          body: `Zostałeś przypisany do zadania: ${result.title}`,
+          link: 'tasks'
+        });
+      } catch (notifError) {
+        console.error('Error sending notification:', notifError);
+      }
+    }
+    
+    return result;
   },
 
   // Get overdue tasks
@@ -209,6 +247,100 @@ export const tasksService = {
           event: '*',
           schema: 'public',
           table: 'tasks'
+        },
+        callback
+      )
+      .subscribe();
+  },
+
+  // ============ MULTIPLE ASSIGNEES ============
+
+  // Get all assignees for a task
+  async getAssignees(taskId: string): Promise<{ id: string; name: string; avatar_url: string | null }[]> {
+    const { data, error } = await supabase
+      .from('task_assignees')
+      .select(`
+        user:profiles!task_assignees_user_id_fkey(id, name, avatar_url)
+      `)
+      .eq('task_id', taskId);
+
+    if (error) throw error;
+    return (data || []).map((d: any) => d.user).filter(Boolean);
+  },
+
+  // Set assignees for a task (replaces all existing assignees)
+  async setAssignees(taskId: string, userIds: string[]): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
+
+    // Remove all existing assignees
+    const { error: deleteError } = await supabase
+      .from('task_assignees')
+      .delete()
+      .eq('task_id', taskId);
+
+    if (deleteError) throw deleteError;
+
+    // Add new assignees
+    if (userIds.length > 0) {
+      const assigneeRecords = userIds.map(userId => ({
+        task_id: taskId,
+        user_id: userId,
+        assigned_by: session.user.id
+      }));
+
+      const { error: insertError } = await supabase
+        .from('task_assignees')
+        .insert(assigneeRecords);
+
+      if (insertError) throw insertError;
+    }
+
+    // Also update the legacy assignee_id field (for backwards compatibility)
+    // Set to first assignee or null
+    await supabase
+      .from('tasks')
+      .update({ assignee_id: userIds[0] || null })
+      .eq('id', taskId);
+  },
+
+  // Add a single assignee to a task
+  async addAssignee(taskId: string, userId: string): Promise<void> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
+
+    const { error } = await supabase
+      .from('task_assignees')
+      .insert({
+        task_id: taskId,
+        user_id: userId,
+        assigned_by: session.user.id
+      });
+
+    if (error && error.code !== '23505') throw error; // Ignore duplicate key error
+  },
+
+  // Remove an assignee from a task
+  async removeAssignee(taskId: string, userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('task_assignees')
+      .delete()
+      .eq('task_id', taskId)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+  },
+
+  // Subscribe to task assignee changes
+  subscribeToAssigneeChanges(callback: (payload: any) => void) {
+    return supabase
+      .channel('task-assignees-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'task_assignees'
         },
         callback
       )

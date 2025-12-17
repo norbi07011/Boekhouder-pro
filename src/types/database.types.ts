@@ -1,5 +1,5 @@
 // Auto-generated types from Supabase
-// Generated on: 2024-12-16
+// Generated on: 2024-12-17
 
 export type Json =
   | string
@@ -49,22 +49,7 @@ export type Database = {
           table_name?: string
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "audit_logs_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "audit_logs_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       chat_channel_members: {
         Row: {
@@ -85,22 +70,7 @@ export type Database = {
           joined_at?: string | null
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "chat_channel_members_channel_id_fkey"
-            columns: ["channel_id"]
-            isOneToOne: false
-            referencedRelation: "chat_channels"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "chat_channel_members_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       chat_channels: {
         Row: {
@@ -130,22 +100,7 @@ export type Database = {
           organization_id?: string
           type?: Database["public"]["Enums"]["channel_type"] | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "chat_channels_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "chat_channels_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       chat_message_attachments: {
         Row: {
@@ -175,15 +130,7 @@ export type Database = {
           name?: string | null
           type?: Database["public"]["Enums"]["attachment_type"]
         }
-        Relationships: [
-          {
-            foreignKeyName: "chat_message_attachments_message_id_fkey"
-            columns: ["message_id"]
-            isOneToOne: false
-            referencedRelation: "chat_messages"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       chat_messages: {
         Row: {
@@ -213,22 +160,7 @@ export type Database = {
           updated_at?: string | null
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "chat_messages_channel_id_fkey"
-            columns: ["channel_id"]
-            isOneToOne: false
-            referencedRelation: "chat_channels"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "chat_messages_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       clients: {
         Row: {
@@ -276,15 +208,7 @@ export type Database = {
           phone?: string | null
           updated_at?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "clients_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       documents: {
         Row: {
@@ -335,36 +259,7 @@ export type Database = {
           uploaded_by?: string
           year?: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "documents_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "documents_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "documents_task_id_fkey"
-            columns: ["task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "documents_uploaded_by_fkey"
-            columns: ["uploaded_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       dutch_tax_deadlines: {
         Row: {
@@ -427,15 +322,46 @@ export type Database = {
           type?: Database["public"]["Enums"]["notification_type"]
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "notifications_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
+      }
+      organization_invites: {
+        Row: {
+          accepted_at: string | null
+          created_at: string | null
+          email: string
+          expires_at: string | null
+          id: string
+          invited_by: string
+          organization_id: string
+          role: string | null
+          status: string | null
+          token: string | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          created_at?: string | null
+          email: string
+          expires_at?: string | null
+          id?: string
+          invited_by: string
+          organization_id: string
+          role?: string | null
+          status?: string | null
+          token?: string | null
+        }
+        Update: {
+          accepted_at?: string | null
+          created_at?: string | null
+          email?: string
+          expires_at?: string | null
+          id?: string
+          invited_by?: string
+          organization_id?: string
+          role?: string | null
+          status?: string | null
+          token?: string | null
+        }
+        Relationships: []
       }
       organizations: {
         Row: {
@@ -522,15 +448,31 @@ export type Database = {
           updated_at?: string | null
           website?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "profiles_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
+      }
+      task_assignees: {
+        Row: {
+          assigned_at: string | null
+          assigned_by: string | null
+          id: string
+          task_id: string
+          user_id: string
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          id?: string
+          task_id: string
+          user_id: string
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_by?: string | null
+          id?: string
+          task_id?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       task_attachments: {
         Row: {
@@ -566,22 +508,7 @@ export type Database = {
           type?: Database["public"]["Enums"]["attachment_type"]
           uploaded_by?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "task_attachments_task_id_fkey"
-            columns: ["task_id"]
-            isOneToOne: false
-            referencedRelation: "tasks"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "task_attachments_uploaded_by_fkey"
-            columns: ["uploaded_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       task_templates: {
         Row: {
@@ -629,22 +556,7 @@ export type Database = {
           priority?: Database["public"]["Enums"]["task_priority"] | null
           title?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "task_templates_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "task_templates_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       tasks: {
         Row: {
@@ -701,36 +613,7 @@ export type Database = {
           title?: string
           updated_at?: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "tasks_assignee_id_fkey"
-            columns: ["assignee_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tasks_client_id_fkey"
-            columns: ["client_id"]
-            isOneToOne: false
-            referencedRelation: "clients"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tasks_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "tasks_organization_id_fkey"
-            columns: ["organization_id"]
-            isOneToOne: false
-            referencedRelation: "organizations"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       user_settings: {
         Row: {
@@ -746,6 +629,12 @@ export type Database = {
           sound_enabled: boolean | null
           updated_at: string | null
           user_id: string
+          reminder_time: number | null
+          notify_task_assigned: boolean | null
+          notify_task_due: boolean | null
+          notify_messages: boolean | null
+          two_factor: boolean | null
+          session_timeout: number | null
         }
         Insert: {
           compact_mode?: boolean | null
@@ -760,6 +649,12 @@ export type Database = {
           sound_enabled?: boolean | null
           updated_at?: string | null
           user_id: string
+          reminder_time?: number | null
+          notify_task_assigned?: boolean | null
+          notify_task_due?: boolean | null
+          notify_messages?: boolean | null
+          two_factor?: boolean | null
+          session_timeout?: number | null
         }
         Update: {
           compact_mode?: boolean | null
@@ -774,16 +669,14 @@ export type Database = {
           sound_enabled?: boolean | null
           updated_at?: string | null
           user_id?: string
+          reminder_time?: number | null
+          notify_task_assigned?: boolean | null
+          notify_task_due?: boolean | null
+          notify_messages?: boolean | null
+          two_factor?: boolean | null
+          session_timeout?: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "user_settings_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: true
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
     }
     Views: {
@@ -849,6 +742,10 @@ export type Database = {
       }
     }
     Functions: {
+      accept_organization_invite: {
+        Args: { invite_token: string }
+        Returns: Json
+      }
       create_notification: {
         Args: {
           p_link?: string
@@ -861,10 +758,9 @@ export type Database = {
         }
         Returns: string
       }
-      get_dashboard_stats: {
-        Args: { org_id: string }
-        Returns: Json
-      }
+      get_dashboard_stats: { Args: { org_id: string }; Returns: Json }
+      get_user_organization_id: { Args: Record<PropertyKey, never>; Returns: string }
+      is_user_admin: { Args: Record<PropertyKey, never>; Returns: boolean }
     }
     Enums: {
       app_language: "PL" | "TR" | "NL"
@@ -901,31 +797,121 @@ export type Database = {
   }
 }
 
-// Helper types for easier usage
-export type Tables<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Row"]
-export type TablesInsert<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Insert"]
-export type TablesUpdate<T extends keyof Database["public"]["Tables"]> = Database["public"]["Tables"][T]["Update"]
-export type Enums<T extends keyof Database["public"]["Enums"]> = Database["public"]["Enums"][T]
-export type Views<T extends keyof Database["public"]["Views"]> = Database["public"]["Views"][T]["Row"]
+type DefaultSchema = Database[Extract<keyof Database, "public">]
 
-// Convenience type aliases
-export type Profile = Tables<"profiles">
-export type Organization = Tables<"organizations">
-export type Client = Tables<"clients">
-export type Task = Tables<"tasks">
-export type TaskTemplate = Tables<"task_templates">
-export type TaskAttachment = Tables<"task_attachments">
-export type ChatChannel = Tables<"chat_channels">
-export type ChatChannelMember = Tables<"chat_channel_members">
-export type ChatMessage = Tables<"chat_messages">
-export type ChatMessageAttachment = Tables<"chat_message_attachments">
-export type Document = Tables<"documents">
-export type Notification = Tables<"notifications">
-export type UserSettings = Tables<"user_settings">
-export type AuditLog = Tables<"audit_logs">
-export type DutchTaxDeadline = Tables<"dutch_tax_deadlines">
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
 
-// View types
-export type TaskWithDetails = Views<"tasks_with_details">
-export type TeamMemberStats = Views<"team_members_stats">
-export type UpcomingDeadline = Views<"upcoming_deadlines">
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof Database },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof Database },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof Database
+  }
+    ? keyof Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof Database
+}
+  ? Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+// Helper type for Insert operations
+export type InsertTables<T extends keyof DefaultSchema["Tables"]> = 
+  DefaultSchema["Tables"][T] extends { Insert: infer I } ? I : never
+
+// Helper type for Update operations
+export type UpdateTables<T extends keyof DefaultSchema["Tables"]> = 
+  DefaultSchema["Tables"][T] extends { Update: infer U } ? U : never
+
+// Type aliases for common tables
+export type Profile = Tables<'profiles'>
+export type UserSettings = Tables<'user_settings'>
+export type Task = Tables<'tasks'>
+export type TaskAssignee = Tables<'task_assignees'>
+export type Client = Tables<'clients'>
+export type Document = Tables<'documents'>
+export type Notification = Tables<'notifications'>
+export type ChatChannel = Tables<'chat_channels'>
+export type ChatMessage = Tables<'chat_messages'>
+export type ChatChannelMember = Tables<'chat_channel_members'>
+export type Organization = Tables<'organizations'>

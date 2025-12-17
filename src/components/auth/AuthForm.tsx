@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
 import { Mail, Lock, User, Eye, EyeOff, Loader2, AlertCircle } from 'lucide-react';
 
 interface AuthFormProps {
@@ -53,14 +53,27 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 px-4 relative overflow-hidden">
+      {/* Holographic Logo Background */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <img 
+          src="/logo.jpg" 
+          alt="" 
+          className="w-[600px] h-[600px] object-contain opacity-[0.03] blur-sm"
+          style={{ filter: 'grayscale(100%) blur(2px)' }}
+        />
+      </div>
+      
+      <div className="w-full max-w-md relative z-10">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 mb-4">
-            <span className="text-2xl font-black text-white">BC</span>
-          </div>
-          <h1 className="text-2xl font-black text-white">Boekhouder Connect</h1>
+          <img 
+            src="/logo.jpg" 
+            alt="Admin Holland Logo" 
+            className="w-24 h-24 mx-auto mb-4 drop-shadow-2xl"
+          />
+          <h1 className="text-2xl font-black text-white">Admin Holland</h1>
+          <p className="text-blue-400 text-sm font-medium">Boekhouder Connect</p>
           <p className="text-slate-400 mt-2">
             {mode === 'login' && 'Zaloguj się do swojego konta'}
             {mode === 'register' && 'Stwórz nowe konto'}

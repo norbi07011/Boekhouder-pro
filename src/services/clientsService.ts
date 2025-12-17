@@ -38,16 +38,12 @@ export const clientsService = {
   },
 
   // Get client with related data
-  async getWithDetails(id: string): Promise<Client & { tasks: any[]; documents: any[] } | null> {
+  async getWithDetails(id: string): Promise<(Client & { tasks: any[]; documents: any[] }) | null> {
     const { data, error } = await supabase
       .from('clients')
-      .select(`
-        *,
-        tasks(id, title, status, due_date, priority),
-        documents(id, name, category, created_at)
-      `)
+      .select('*, tasks(id, title, status, due_date, priority), documents(id, name, category, created_at)')
       .eq('id', id)
-      .single();
+      .single() as any;
 
     if (error) throw error;
     return data;
@@ -55,13 +51,13 @@ export const clientsService = {
 
   // Create client
   async create(client: Omit<InsertTables<'clients'>, 'organization_id'>): Promise<Client> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const { data: profile } = await supabase
       .from('profiles')
       .select('organization_id')
-      .eq('id', user.id)
+      .eq('id', session.user.id)
       .single();
 
     if (!profile?.organization_id) throw new Error('No organization found');

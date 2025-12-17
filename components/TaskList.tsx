@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Task, TaskStatus, Language, User, TaskTemplate, TaskAttachment, TaskCategory } from '../types';
 import { DICTIONARY } from '../constants';
-import { Plus, MoreHorizontal, User as UserIcon, Calendar, Search, Filter, Wand2, Briefcase, X, Clock, Trash2, Save, Target, CheckCircle2, ArrowRight, LayoutTemplate, Settings, Edit2, Palette, Check, Paperclip, Mic, Image as ImageIcon, Play, Pause, FileText, Download, Eye, Maximize2, Hash, FileBarChart, Calculator, Timer } from 'lucide-react';
+import { Plus, MoreHorizontal, User as UserIcon, Calendar, Search, Filter, Wand2, Briefcase, X, Clock, Trash2, Save, Target, CheckCircle2, ArrowRight, LayoutTemplate, Settings, Edit2, Palette, Check, Paperclip, Mic, Image as ImageIcon, Play, Pause, FileText, Download, Eye, Maximize2, Hash, FileBarChart, Calculator, Timer, Loader2 } from 'lucide-react';
+import { tasksService } from '../src/services/tasksService';
 
 interface TaskListProps {
   tasks: Task[];
@@ -56,6 +57,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
     dueTime: '',
     priority: 'Medium',
     assigneeId: '',
+    assigneeIds: [],
     status: TaskStatus.TODO,
     category: 'General',
     estimatedHours: 0,
@@ -121,6 +123,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
             dueTime: '',
             priority: 'Medium',
             assigneeId: '',
+            assigneeIds: [],
             status: TaskStatus.TODO,
             category: 'General',
             estimatedHours: 0,
@@ -133,29 +136,115 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
       setIsModalOpen(true);
   };
 
-  const handleSaveTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingTask.title) return;
+  const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-    if (isEditing && editingTask.id) {
-        setTasks(tasks.map(t => t.id === editingTask.id ? { ...t, ...editingTask } as Task : t));
-    } else {
+  const handleSaveTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTask.title || isSaving) return;
+
+    setIsSaving(true);
+
+    try {
+      if (isEditing && editingTask.id) {
+        // UPDATE existing task in database
+        const updatedTask = await tasksService.update(editingTask.id, {
+          title: editingTask.title,
+          description: editingTask.description || null,
+          due_date: editingTask.dueDate || null,
+          due_time: editingTask.dueTime || null,
+          priority: editingTask.priority as 'Low' | 'Medium' | 'High',
+          assignee_id: editingTask.assigneeIds?.[0] || editingTask.assigneeId || null,
+          status: editingTask.status as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE',
+          category: editingTask.category as 'General' | 'Tax' | 'Payroll' | 'Meeting' | 'Audit' | 'Advisory',
+          estimated_hours: editingTask.estimatedHours || null
+        });
+
+        // Save multiple assignees to task_assignees table
+        if (editingTask.assigneeIds && editingTask.assigneeIds.length > 0) {
+          await tasksService.setAssignees(editingTask.id, editingTask.assigneeIds);
+        }
+
+        // Update local state
+        setTasks(tasks.map(t => t.id === editingTask.id ? {
+          id: updatedTask.id,
+          title: updatedTask.title,
+          description: updatedTask.description || '',
+          assigneeId: updatedTask.assignee_id || '',
+          assigneeIds: editingTask.assigneeIds || [],
+          dueDate: updatedTask.due_date || '',
+          dueTime: updatedTask.due_time || '',
+          status: updatedTask.status || TaskStatus.TODO,
+          priority: updatedTask.priority || 'Medium',
+          category: (updatedTask.category || 'General') as TaskCategory,
+          estimatedHours: Number(updatedTask.estimated_hours) || 0,
+          tags: updatedTask.tags || [],
+          attachments: editingTask.attachments || []
+        } as Task : t));
+      } else {
+        // CREATE new task in database
+        const newTask = await tasksService.create({
+          title: editingTask.title!,
+          description: editingTask.description || null,
+          due_date: editingTask.dueDate || null,
+          due_time: editingTask.dueTime || null,
+          priority: (editingTask.priority || 'Medium') as 'Low' | 'Medium' | 'High',
+          assignee_id: editingTask.assigneeIds?.[0] || editingTask.assigneeId || null,
+          status: (editingTask.status || 'TODO') as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE',
+          category: (editingTask.category || 'General') as 'General' | 'Tax' | 'Payroll' | 'Meeting' | 'Audit' | 'Advisory',
+          estimated_hours: editingTask.estimatedHours || null
+        });
+
+        // Save multiple assignees to task_assignees table
+        if (editingTask.assigneeIds && editingTask.assigneeIds.length > 0) {
+          await tasksService.setAssignees(newTask.id, editingTask.assigneeIds);
+        }
+
+        // Add to local state
         const task: Task = {
-            ...(editingTask as Task),
-            id: Math.random().toString(36).substr(2, 9),
-            tags: [],
-            attachments: editingTask.attachments || []
+          id: newTask.id,
+          title: newTask.title,
+          description: newTask.description || '',
+          assigneeId: newTask.assignee_id || '',
+          assigneeIds: editingTask.assigneeIds || [],
+          dueDate: newTask.due_date || '',
+          dueTime: newTask.due_time || '',
+          status: (newTask.status as TaskStatus) || TaskStatus.TODO,
+          priority: newTask.priority || 'Medium',
+          category: (newTask.category || 'General') as TaskCategory,
+          estimatedHours: Number(newTask.estimated_hours) || 0,
+          tags: newTask.tags || [],
+          attachments: editingTask.attachments || []
         };
-        setTasks([...tasks, task]);
+        setTasks([task, ...tasks]);
+      }
+      setIsModalOpen(false);
+    } catch (error: any) {
+      console.error('Error saving task:', error);
+      alert('Nie udało się zapisać zadania: ' + (error.message || 'Spróbuj ponownie'));
+    } finally {
+      setIsSaving(false);
     }
-    setIsModalOpen(false);
   };
 
-  const handleDelete = () => {
-      if (editingTask.id) {
-          setTasks(tasks.filter(t => t.id !== editingTask.id));
-          setIsModalOpen(false);
-      }
+  const handleDelete = async () => {
+    if (!editingTask.id || isDeleting) return;
+
+    setIsDeleting(true);
+
+    try {
+      // DELETE from database
+      await tasksService.delete(editingTask.id);
+      
+      // Remove from local state
+      setTasks(tasks.filter(t => t.id !== editingTask.id));
+      setIsModalOpen(false);
+    } catch (error: any) {
+      console.error('Error deleting task:', error);
+      alert('Nie udało się usunąć zadania: ' + (error.message || 'Spróbuj ponownie'));
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   // --- ATTACHMENT HANDLERS ---
@@ -322,9 +411,38 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
       setManagerView('LIST');
   };
 
-  const moveTask = (e: React.MouseEvent, taskId: string, newStatus: TaskStatus) => {
+  const moveTask = async (e: React.MouseEvent, taskId: string, newStatus: TaskStatus) => {
     e.stopPropagation();
+    
+    // Optimistic update
     setTasks(tasks.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    
+    // Save to database
+    try {
+      await tasksService.updateStatus(taskId, newStatus as 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE');
+    } catch (error) {
+      console.error('Error updating task status:', error);
+      // Revert on error - reload tasks
+      try {
+        const refreshedTasks = await tasksService.getAll();
+        setTasks(refreshedTasks.map(t => ({
+          id: t.id,
+          title: t.title,
+          description: t.description || '',
+          assigneeId: t.assignee_id || '',
+          dueDate: t.due_date || '',
+          dueTime: t.due_time || '',
+          status: t.status || 'TODO',
+          priority: t.priority || 'Medium',
+          category: (t.category || 'General') as TaskCategory,
+          estimatedHours: Number(t.estimated_hours) || 0,
+          tags: t.tags || [],
+          attachments: []
+        })));
+      } catch (e) {
+        console.error('Error refreshing tasks:', e);
+      }
+    }
   };
 
   const applyTemplate = (tpl: TaskTemplate) => {
@@ -417,6 +535,8 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
              <button 
                  className="absolute top-4 right-4 text-white hover:text-red-400 p-2 bg-white/10 rounded-full transition-colors z-[70]"
                  onClick={() => setPreviewFile(null)}
+                 title="Close preview"
+                 aria-label="Close preview"
              >
                  <X className="w-8 h-8" />
              </button>
@@ -537,8 +657,20 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
 
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                        {/* Avatar - Smaller */}
-                                        {task.assigneeId ? (
+                                        {/* Multiple Assignees Avatars */}
+                                        {(task.assigneeIds && task.assigneeIds.length > 0) ? (
+                                            <div className="flex -space-x-1.5">
+                                              {task.assigneeIds.slice(0, 3).map((aId, idx) => {
+                                                const assignee = users.find(u => u.id === aId);
+                                                return assignee ? (
+                                                  <img key={aId} src={assignee.avatar} className="w-5 h-5 rounded-full object-cover border-2 border-white dark:border-slate-800 shadow-sm" style={{zIndex: 3 - idx}} alt={assignee.name} title={assignee.name} />
+                                                ) : null;
+                                              })}
+                                              {task.assigneeIds.length > 3 && (
+                                                <div className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-600 border-2 border-white dark:border-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-600 dark:text-slate-300">+{task.assigneeIds.length - 3}</div>
+                                              )}
+                                            </div>
+                                        ) : task.assigneeId ? (
                                             <img src={users.find(u => u.id === task.assigneeId)?.avatar} className="w-5 h-5 rounded-full object-cover border border-slate-100 dark:border-slate-600 shadow-sm" alt="Assignee" />
                                         ) : (
                                             <div className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center border border-slate-200 dark:border-slate-600"><UserIcon className="w-3 h-3 text-slate-400" /></div>
@@ -607,7 +739,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                       </span>
                                   </div>
                               </div>
-                              <button className="text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button className="text-slate-300 hover:text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" title="More options" aria-label="More options">
                                   <MoreHorizontal className="w-4 h-4" />
                               </button>
                           </div>
@@ -631,13 +763,30 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                           {/* Footer */}
                           <div className="flex justify-between items-center pt-3 border-t border-slate-100 dark:border-slate-700/60">
                               <div className="flex items-center gap-2">
-                                  {task.assigneeId ? (
+                                  {/* Multiple Assignees Avatars */}
+                                  {(task.assigneeIds && task.assigneeIds.length > 0) ? (
+                                      <div className="flex -space-x-2">
+                                        {task.assigneeIds.slice(0, 3).map((aId, idx) => {
+                                          const assignee = users.find(u => u.id === aId);
+                                          return assignee ? (
+                                            <img key={aId} src={assignee.avatar} alt={assignee.name} title={assignee.name} className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-800 shadow-sm object-cover" style={{zIndex: 3 - idx}} />
+                                          ) : null;
+                                        })}
+                                        {task.assigneeIds.length > 3 && (
+                                          <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-600 border-2 border-white dark:border-slate-800 flex items-center justify-center text-[9px] font-bold text-slate-600 dark:text-slate-300">+{task.assigneeIds.length - 3}</div>
+                                        )}
+                                      </div>
+                                  ) : task.assigneeId ? (
                                       <img src={users.find(u => u.id === task.assigneeId)?.avatar} alt="User" className="w-6 h-6 rounded-full border border-slate-100 dark:border-slate-600 shadow-sm object-cover" />
                                   ) : (
                                       <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center justify-center text-slate-400"><UserIcon className="w-3 h-3" /></div>
                                   )}
                                   <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
-                                      {task.assigneeId ? users.find(u => u.id === task.assigneeId)?.name.split(' ')[0] : 'Unassigned'}
+                                      {(task.assigneeIds && task.assigneeIds.length > 0) 
+                                        ? (task.assigneeIds.length === 1 
+                                            ? users.find(u => u.id === task.assigneeIds![0])?.name.split(' ')[0] 
+                                            : `${task.assigneeIds.length} osób`)
+                                        : (task.assigneeId ? users.find(u => u.id === task.assigneeId)?.name.split(' ')[0] : 'Unassigned')}
                                   </span>
                               </div>
                               <div className={`flex items-center text-[10px] font-bold px-2 py-1 rounded-lg ${new Date(task.dueDate) < new Date() && task.status !== TaskStatus.DONE ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-300 border border-slate-100 dark:border-slate-600'}`}>
@@ -682,7 +831,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                            {managerView === 'LIST' ? t.manage_templates : managerView === 'CREATE' ? t.add_new_template : t.edit}
                         </h3>
                     </div>
-                    <button onClick={() => setIsManagerOpen(false)} className="text-slate-400 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
+                    <button onClick={() => setIsManagerOpen(false)} className="text-slate-400 hover:bg-slate-200 p-1.5 rounded-full transition-colors" title="Close" aria-label="Close manager">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -713,12 +862,16 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                         <button 
                                             onClick={() => startEditTemplate(tpl)}
                                             className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                            title="Edit template"
+                                            aria-label="Edit template"
                                         >
                                             <Edit2 className="w-4 h-4" />
                                         </button>
                                         <button 
                                             onClick={() => handleDeleteTemplate(tpl.id!)}
                                             className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                            title="Delete template"
+                                            aria-label="Delete template"
                                         >
                                             <Trash2 className="w-4 h-4" />
                                         </button>
@@ -810,7 +963,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                     {isEditing ? t.edit_task : t.new_task}
                  </h3>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition-colors" title="Close" aria-label="Close modal">
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -863,6 +1016,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                 value={selectedPeriod}
                                 onChange={(e) => setSelectedPeriod(e.target.value)}
                                 className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                title="Select period"
                              >
                                 <option value="">-</option>
                                 <option value="Q1">Q1</option>
@@ -880,6 +1034,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                 value={selectedYear}
                                 onChange={(e) => setSelectedYear(e.target.value)}
                                 className="w-full bg-white border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                                title="Select year"
                              >
                                 {futureYears.map(yr => (
                                     <option key={yr} value={yr}>{yr}</option>
@@ -911,6 +1066,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                             value={editingTask.category || 'General'}
                             onChange={e => setEditingTask({...editingTask, category: e.target.value as TaskCategory})}
                             className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-slate-700"
+                            title="Select category"
                           >
                              <option value="General">{t.cat_general}</option>
                              <option value="Tax">{t.cat_tax}</option>
@@ -935,6 +1091,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                           value={editingTask.dueDate}
                           onChange={e => setEditingTask({...editingTask, dueDate: e.target.value})}
                           className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer font-medium text-slate-700"
+                          title="Due date"
                        />
                     </div>
                  </div>
@@ -947,6 +1104,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                           value={editingTask.dueTime}
                           onChange={e => setEditingTask({...editingTask, dueTime: e.target.value})}
                           className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all cursor-pointer font-medium text-slate-700"
+                          title="Due time"
                        />
                     </div>
                  </div>
@@ -961,6 +1119,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                         value={editingTask.priority}
                         onChange={e => setEditingTask({...editingTask, priority: e.target.value as any})}
                         className="w-full bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all appearance-none px-4 font-medium text-slate-700"
+                        title="Select priority"
                         >
                         <option value="Low">Low</option>
                         <option value="Medium">Medium</option>
@@ -977,6 +1136,7 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                        value={editingTask.status}
                        onChange={e => setEditingTask({...editingTask, status: e.target.value as any})}
                        className="w-full bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700"
+                       title="Select status"
                     >
                        {Object.values(TaskStatus).map(s => (
                          <option key={s} value={s}>{s.replace('_', ' ')}</option>
@@ -1001,19 +1161,34 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
               </div>
 
               <div>
-                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t.assignee}</label>
-                   <div className="relative group">
-                      <UserIcon className="absolute left-3 top-3 w-4.5 h-4.5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-                      <select
-                         value={editingTask.assigneeId || ''}
-                         onChange={e => setEditingTask({...editingTask, assigneeId: e.target.value})}
-                         className="w-full pl-10 bg-white border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-blue-500 outline-none appearance-none transition-all font-medium text-slate-700"
-                      >
-                         <option value="">-</option>
-                         {users.map(u => (
-                           <option key={u.id} value={u.id}>{u.name}</option>
-                         ))}
-                      </select>
+                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">{t.assignee} ({(editingTask.assigneeIds?.length || 0)} wybrano)</label>
+                   <div className="bg-white border border-slate-300 rounded-xl p-3 max-h-40 overflow-y-auto">
+                      {users.map(u => {
+                        const isSelected = editingTask.assigneeIds?.includes(u.id) || false;
+                        return (
+                          <label 
+                            key={u.id} 
+                            className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-all ${isSelected ? 'bg-blue-50 border border-blue-200' : 'hover:bg-slate-50'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => {
+                                const currentIds = editingTask.assigneeIds || [];
+                                if (e.target.checked) {
+                                  setEditingTask({...editingTask, assigneeIds: [...currentIds, u.id]});
+                                } else {
+                                  setEditingTask({...editingTask, assigneeIds: currentIds.filter(id => id !== u.id)});
+                                }
+                              }}
+                              className="w-4 h-4 text-blue-600 rounded border-slate-300 focus:ring-blue-500"
+                            />
+                            <img src={u.avatar} alt={u.name} className="w-6 h-6 rounded-full object-cover border border-slate-200" />
+                            <span className="text-sm font-medium text-slate-700">{u.name}</span>
+                            {isSelected && <Check className="w-4 h-4 text-blue-600 ml-auto" />}
+                          </label>
+                        );
+                      })}
                    </div>
               </div>
 
@@ -1028,6 +1203,8 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                             onChange={handleFileUpload} 
                             className="hidden" 
                             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                            title="Upload file"
+                            aria-label="Upload file"
                          />
                          <button 
                              type="button"
@@ -1079,6 +1256,8 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                   onClick={() => removeAttachment(att.id)}
                                   type="button"
                                   className="absolute top-1 right-1 p-1 bg-white/80 rounded-full text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                                  title="Remove attachment"
+                                  aria-label="Remove attachment"
                               >
                                   <X className="w-4 h-4" />
                               </button>
@@ -1091,6 +1270,8 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                               type="button"
                                               onClick={() => setPreviewFile({url: att.url, type: 'image'})}
                                               className="p-2 bg-white/20 hover:bg-white/40 rounded-full text-white backdrop-blur-sm"
+                                              title="Preview image"
+                                              aria-label="Preview image"
                                            >
                                                <Maximize2 className="w-5 h-5" />
                                            </button>
@@ -1098,6 +1279,8 @@ export const TaskList: React.FC<TaskListProps> = ({ tasks, setTasks, language, u
                                               type="button"
                                               onClick={() => downloadFile(att.url, att.name)}
                                               className="ml-2 p-2 bg-white/20 hover:bg-white/40 rounded-full text-white backdrop-blur-sm"
+                                              title="Download file"
+                                              aria-label="Download file"
                                            >
                                                <Download className="w-5 h-5" />
                                            </button>

@@ -4,8 +4,8 @@ import type { Profile, InsertTables, UpdateTables } from '../types/database.type
 export const profilesService = {
   // Get current user's profile
   async getCurrentProfile(): Promise<Profile | null> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return null;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return null;
 
     const { data, error } = await supabase
       .from('profiles')
@@ -13,7 +13,7 @@ export const profilesService = {
         *,
         organization:organizations(id, name, logo_url)
       `)
-      .eq('id', user.id)
+      .eq('id', session.user.id)
       .single();
 
     if (error) throw error;
@@ -61,19 +61,19 @@ export const profilesService = {
 
   // Update current user's profile
   async updateCurrentProfile(updates: UpdateTables<'profiles'>): Promise<Profile> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
-    return this.update(user.id, updates);
+    return this.update(session.user.id, updates);
   },
 
   // Upload avatar
   async uploadAvatar(file: File): Promise<string> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const fileExt = file.name.split('.').pop();
-    const fileName = `${user.id}/avatar.${fileExt}`;
+    const fileName = `${session.user.id}/avatar.${fileExt}`;
 
     // Upload to storage
     const { error: uploadError } = await supabase.storage
@@ -88,20 +88,20 @@ export const profilesService = {
       .getPublicUrl(fileName);
 
     // Update profile with new avatar URL
-    await this.update(user.id, { avatar_url: data.publicUrl });
+    await this.update(session.user.id, { avatar_url: data.publicUrl });
 
     return data.publicUrl;
   },
 
   // Update user status (Online/Offline/Busy)
   async updateStatus(status: Profile['status']): Promise<void> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return;
 
     await supabase
       .from('profiles')
       .update({ status })
-      .eq('id', user.id);
+      .eq('id', session.user.id);
   },
 
   // Get online users in organization

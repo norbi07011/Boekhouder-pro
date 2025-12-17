@@ -1,8 +1,9 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { User, Language } from '../types';
 import { DICTIONARY } from '../constants';
-import { Save, Lock, User as UserIcon, Camera, Check, MapPin, Globe, Phone, FileText, Briefcase, Activity } from 'lucide-react';
+import { Save, Lock, User as UserIcon, Camera, Check, MapPin, Globe, Phone, FileText, Briefcase, Activity, Loader2 } from 'lucide-react';
+import { profilesService } from '../src/services/profilesService';
 
 interface ProfileProps {
   currentUser: User;
@@ -27,47 +28,105 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
   const [website, setWebsite] = useState(currentUser.website || '');
 
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Password fields (simulation)
   const [currentPwd, setCurrentPwd] = useState('');
   const [newPwd, setNewPwd] = useState('');
   const [confirmPwd, setConfirmPwd] = useState('');
 
-  const handleSave = (e: React.FormEvent) => {
+  // Sync with currentUser when it changes
+  useEffect(() => {
+    setName(currentUser.name);
+    setAvatar(currentUser.avatar);
+    setRole(currentUser.role);
+    setStatus(currentUser.status || 'Online');
+    setBio(currentUser.bio || '');
+    setPhone(currentUser.phone || '');
+    setLocation(currentUser.location || '');
+    setWebsite(currentUser.website || '');
+  }, [currentUser]);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateUser({
-      ...currentUser,
-      name,
-      avatar,
-      role,
-      status: status as any,
-      bio,
-      phone,
-      location,
-      website
-    });
-    
-    // Simulate successful save
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
-    
-    // Clear passwords
-    setCurrentPwd('');
-    setNewPwd('');
-    setConfirmPwd('');
+    setIsSaving(true);
+    setError(null);
+
+    try {
+      // Save to Supabase
+      await profilesService.updateCurrentProfile({
+        name,
+        avatar_url: avatar,
+        role: role as any,
+        status: status as any,
+        bio,
+        phone,
+        location,
+        website
+      });
+
+      // Update local state
+      onUpdateUser({
+        ...currentUser,
+        name,
+        avatar,
+        role,
+        status: status as any,
+        bio,
+        phone,
+        location,
+        website
+      });
+      
+      // Show success
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+      
+      // Clear passwords
+      setCurrentPwd('');
+      setNewPwd('');
+      setConfirmPwd('');
+    } catch (err: any) {
+      console.error('Error saving profile:', err);
+      setError(err.message || 'Błąd zapisu profilu');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      const reader = new FileReader();
-      
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setAvatar(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      setIsUploadingAvatar(true);
+      setError(null);
+
+      try {
+        // Upload to Supabase Storage
+        const newAvatarUrl = await profilesService.uploadAvatar(file);
+        setAvatar(newAvatarUrl);
+        
+        // Update local user state
+        onUpdateUser({
+          ...currentUser,
+          avatar: newAvatarUrl
+        });
+      } catch (err: any) {
+        console.error('Error uploading avatar:', err);
+        setError(err.message || 'Błąd uploadu zdjęcia');
+        
+        // Fallback: use local preview
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          if (event.target?.result) {
+            setAvatar(event.target.result as string);
+          }
+        };
+        reader.readAsDataURL(file);
+      } finally {
+        setIsUploadingAvatar(false);
+      }
     }
   };
 
@@ -81,6 +140,11 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
             <span className="text-sm font-bold">{t.saved_success}</span>
             </div>
         )}
+        {error && (
+            <div className="bg-red-100 border border-red-200 text-red-700 px-4 py-2 rounded-lg flex items-center shadow-sm">
+            <span className="text-sm font-bold">{error}</span>
+            </div>
+        )}
       </div>
 
       <form onSubmit={handleSave} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -91,14 +155,20 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-col items-center text-center sticky top-6">
               <div 
                 className="relative group cursor-pointer mb-4"
-                onClick={() => fileInputRef.current?.click()}
-                title="Click to upload new photo"
+                onClick={() => !isUploadingAvatar && fileInputRef.current?.click()}
+                title="Kliknij, aby przesłać nowe zdjęcie"
               >
-                 <img 
-                    src={avatar} 
-                    alt="Preview" 
-                    className="w-36 h-36 rounded-2xl object-cover border-4 border-white shadow-lg bg-slate-100 transition-opacity group-hover:opacity-90" 
-                 />
+                 {isUploadingAvatar ? (
+                   <div className="w-36 h-36 rounded-2xl bg-slate-100 flex items-center justify-center">
+                     <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+                   </div>
+                 ) : (
+                   <img 
+                      src={avatar} 
+                      alt="Preview" 
+                      className="w-36 h-36 rounded-2xl object-cover border-4 border-white shadow-lg bg-slate-100 transition-opacity group-hover:opacity-90" 
+                   />
+                 )}
                  <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity backdrop-blur-sm">
                     <Camera className="w-8 h-8 text-white" />
                  </div>
@@ -113,6 +183,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                 onChange={handleAvatarUpload} 
                 className="hidden" 
                 accept="image/*"
+                title="Wybierz zdjęcie profilowe"
               />
 
               <h3 className="font-bold text-xl text-slate-800 mb-1">{name}</h3>
@@ -155,6 +226,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        value={name}
                        onChange={(e) => setName(e.target.value)}
                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700"
+                       title="Imię i nazwisko"
+                       placeholder="Jan Kowalski"
                     />
                  </div>
                  
@@ -166,6 +239,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                             value={role} 
                             onChange={(e) => setRole(e.target.value as any)}
                             className="w-full pl-9 p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-slate-700 bg-white"
+                            title="Rola"
                         >
                             <option value="Accountant">Accountant</option>
                             <option value="Manager">Manager</option>
@@ -182,6 +256,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                             value={status} 
                             onChange={(e) => setStatus(e.target.value as any)}
                             className="w-full pl-9 p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none appearance-none font-medium text-slate-700 bg-white"
+                            title="Status"
                         >
                             <option value="Online">Online</option>
                             <option value="Busy">Busy</option>
@@ -198,6 +273,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        onChange={(e) => setAvatar(e.target.value)}
                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all text-sm font-medium text-slate-600"
                        placeholder="https://..."
+                       title="URL zdjęcia profilowego"
                     />
                  </div>
               </div>
@@ -218,6 +294,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        value={currentUser.email || ''}
                        disabled
                        className="w-full p-2.5 border border-slate-200 bg-slate-50 text-slate-400 rounded-xl cursor-not-allowed font-medium"
+                       title="Email (nie można zmienić)"
+                       placeholder="email@example.com"
                     />
                  </div>
                  
@@ -229,6 +307,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        onChange={(e) => setPhone(e.target.value)}
                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700"
                        placeholder="+31 6..."
+                       title="Numer telefonu"
                     />
                  </div>
 
@@ -240,6 +319,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        onChange={(e) => setLocation(e.target.value)}
                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700"
                        placeholder="City, Country"
+                       title="Lokalizacja"
                     />
                  </div>
 
@@ -251,6 +331,7 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        onChange={(e) => setWebsite(e.target.value)}
                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all font-medium text-slate-700"
                        placeholder="www.example.com"
+                       title="Strona www"
                     />
                  </div>
               </div>
@@ -288,6 +369,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                        value={currentPwd}
                        onChange={(e) => setCurrentPwd(e.target.value)}
                        className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+                       title="Aktualne hasło"
+                       placeholder="********"
                     />
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -298,6 +381,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                            value={newPwd}
                            onChange={(e) => setNewPwd(e.target.value)}
                            className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+                           title="Nowe hasło"
+                           placeholder="********"
                         />
                     </div>
                     <div>
@@ -307,6 +392,8 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
                            value={confirmPwd}
                            onChange={(e) => setConfirmPwd(e.target.value)}
                            className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none"
+                           title="Potwierdź hasło"
+                           placeholder="********"
                         />
                     </div>
                  </div>
@@ -316,10 +403,15 @@ export const Profile: React.FC<ProfileProps> = ({ currentUser, onUpdateUser, lan
            <div className="flex justify-end pt-4 sticky bottom-4 z-10">
               <button 
                  type="submit" 
-                 className="flex items-center bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-800 shadow-xl shadow-slate-900/20 transition-all transform hover:-translate-y-0.5"
+                 disabled={isSaving}
+                 className="flex items-center bg-slate-900 text-white px-8 py-3 rounded-xl font-bold hover:bg-slate-800 shadow-xl shadow-slate-900/20 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                 <Save className="w-5 h-5 mr-2" />
-                 {t.save_changes}
+                 {isSaving ? (
+                   <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                 ) : (
+                   <Save className="w-5 h-5 mr-2" />
+                 )}
+                 {isSaving ? 'Zapisywanie...' : t.save_changes}
               </button>
            </div>
         </div>

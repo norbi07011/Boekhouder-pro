@@ -1,8 +1,10 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage, User, Language, ChatAttachment } from '../types';
 import { DICTIONARY } from '../constants';
-import { Send, Paperclip, Search, Hash, Menu, Mic, Image as ImageIcon, Play, Pause, FileText, Check, CheckCheck, MoreVertical, Smile, X, Plus, Palette, Sticker, Film, ArrowLeft } from 'lucide-react';
+import { Send, Paperclip, Search, Hash, Menu, Mic, Image as ImageIcon, Play, Pause, FileText, Check, CheckCheck, MoreVertical, Smile, X, Plus, Palette, Sticker, Film, ArrowLeft, Loader2 } from 'lucide-react';
+import { chatService } from '../src/services/chatService';
+import { supabase } from '../src/lib/supabase';
 
 interface ChatProps {
   messages: ChatMessage[];
@@ -15,7 +17,7 @@ interface ChatProps {
 interface Channel {
     id: string;
     name: string;
-    type: 'group' | 'dm';
+    type: 'group';
     participants?: string[]; // IDs
     icon?: any;
     color?: string;
@@ -63,10 +65,10 @@ const GIFS = [
 export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, currentUser, language }) => {
   const t = DICTIONARY[language];
   
-  const [channels, setChannels] = useState<Channel[]>(INITIAL_CHANNELS);
+  const [channels, setChannels] = useState<Channel[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(true); 
-  const [activeChannelId, setActiveChannelId] = useState<string>('general');
+  const [activeChannelId, setActiveChannelId] = useState<string>('');
   const scrollRef = useRef<HTMLDivElement>(null);
   
   const [sidebarSearch, setSidebarSearch] = useState('');
@@ -87,21 +89,161 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
   const [pickerTab, setPickerTab] = useState<'emojis' | 'stickers' | 'gifs'>('emojis');
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  const activeChannel = channels.find(c => c.id === activeChannelId) 
-    || { id: activeChannelId, name: users.find(u => u.id === activeChannelId)?.name || 'Unknown', type: 'dm' as const };
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSending, setIsSending] = useState(false);
+
+  // Load channels from database (groups only)
+  const loadChannels = useCallback(async () => {
+    try {
+      const dbChannels = await chatService.getChannels();
+      // Filter only group channels (no DMs)
+      const mappedChannels: Channel[] = dbChannels
+        .filter(ch => ch.type === 'group')
+        .map(ch => ({
+          id: ch.id,
+          name: ch.name,
+          type: 'group' as const,
+          color: ch.color || 'bg-blue-500'
+        }));
+      setChannels(mappedChannels);
+      
+      // Set first channel as active if none selected
+      setActiveChannelId(prev => {
+        if (!prev && mappedChannels.length > 0) {
+          return mappedChannels[0].id;
+        }
+        return prev;
+      });
+    } catch (error) {
+      console.error('Error loading channels:', error);
+    }
+  }, [currentUser.id]); // Depend on currentUser.id
+
+  // Load messages for active channel
+  const loadMessages = useCallback(async () => {
+    if (!activeChannelId) return;
+    
+    try {
+      const dbMessages = await chatService.getMessages(activeChannelId);
+      const mappedMessages: ChatMessage[] = dbMessages.map(msg => ({
+        id: msg.id,
+        text: msg.text,
+        userId: msg.user_id,
+        channelId: msg.channel_id,
+        timestamp: msg.created_at,
+        attachments: []
+      }));
+      setMessages(mappedMessages);
+    } catch (error) {
+      console.error('Error loading messages:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeChannelId]); // Removed setMessages - it's stable
+
+  // Initial load - only once
+  useEffect(() => {
+    loadChannels();
+  }, []); // Run only once on mount
+
+  // Load messages when channel changes
+  useEffect(() => {
+    if (activeChannelId) {
+      setIsLoading(true);
+      loadMessages();
+    }
+  }, [activeChannelId]); // Only depend on activeChannelId
+
+  // Real-time subscription for new messages
+  useEffect(() => {
+    if (!activeChannelId) return;
+
+    const subscription = supabase
+      .channel(`chat_messages_${activeChannelId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_messages',
+          filter: `channel_id=eq.${activeChannelId}`
+        },
+        async (payload) => {
+          // Fetch the complete message with user info
+          const { data: newMsg } = await supabase
+            .from('chat_messages')
+            .select(`*, user:profiles(id, name, avatar_url)`)
+            .eq('id', payload.new.id)
+            .single();
+
+          if (newMsg) {
+            const mappedMessage: ChatMessage = {
+              id: newMsg.id,
+              text: newMsg.text,
+              userId: newMsg.user_id,
+              channelId: newMsg.channel_id,
+              timestamp: newMsg.created_at,
+              attachments: []
+            };
+            
+            setMessages(prev => {
+              // Avoid duplicates
+              if (prev.some(m => m.id === mappedMessage.id)) return prev;
+              return [...prev, mappedMessage];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [activeChannelId, setMessages]);
+
+  // Real-time subscription for channel membership changes (new groups appear automatically)
+  useEffect(() => {
+    if (!currentUser.id) return;
+
+    const membershipSubscription = supabase
+      .channel(`memberships_${currentUser.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'chat_channel_members',
+          filter: `user_id=eq.${currentUser.id}`
+        },
+        async () => {
+          // When user is added to a new channel, reload channels
+          console.log('[Chat] New channel membership detected, reloading channels...');
+          loadChannels();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      membershipSubscription.unsubscribe();
+    };
+  }, [currentUser.id, loadChannels]);
+
+  const channelFromDb = channels.find(c => c.id === activeChannelId);
+  
+  const activeChannel = channelFromDb 
+    ? channelFromDb
+    : { id: activeChannelId, name: 'Wybierz kanał', type: 'group' as const, color: 'bg-blue-500' };
 
   const activeMessages = messages.filter(m => {
-      const matchesContext = activeChannel.type === 'group' 
-          ? m.channelId === activeChannelId
-          : (m.userId === currentUser.id && m.channelId === activeChannelId) || 
-            (m.userId === activeChannelId && m.channelId === currentUser.id);
+      // For group channels, match by channelId
+      // For DM channels, match by the actual channel ID
+      const matchesContext = m.channelId === activeChannelId;
       
       if (!chatSearch.trim()) return matchesContext;
       return matchesContext && m.text.toLowerCase().includes(chatSearch.toLowerCase());
   });
 
   const filteredChannels = channels.filter(c => c.name.toLowerCase().includes(sidebarSearch.toLowerCase()));
-  const filteredUsers = users.filter(u => u.id !== currentUser.id && u.name.toLowerCase().includes(sidebarSearch.toLowerCase()));
 
   // Auto-close sidebar on mobile on initial load
   useEffect(() => {
@@ -128,41 +270,57 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
       };
   }, [pickerRef]);
 
-  const handleCreateGroup = (e: React.FormEvent) => {
+  const handleCreateGroup = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!newGroupName.trim()) return;
 
-      const newChannel: Channel = {
-          id: `group-${Date.now()}`,
+      try {
+        const newChannel = await chatService.createChannel({
           name: newGroupName,
           type: 'group',
           color: newGroupColor
-      };
+        });
+        
+        const mappedChannel: Channel = {
+          id: newChannel.id,
+          name: newChannel.name,
+          type: 'group',
+          color: newChannel.color || newGroupColor
+        };
 
-      setChannels([...channels, newChannel]);
-      setActiveChannelId(newChannel.id);
-      setNewGroupName('');
-      setIsCreateGroupOpen(false);
-      setIsSidebarOpen(false); // Close sidebar on mobile after create
+        setChannels(prev => [...prev, mappedChannel]);
+        setActiveChannelId(mappedChannel.id);
+        setNewGroupName('');
+        setIsCreateGroupOpen(false);
+        setIsSidebarOpen(false);
+      } catch (error) {
+        console.error('Error creating channel:', error);
+        alert('Nie udało się utworzyć grupy. Spróbuj ponownie.');
+      }
   };
 
-  const handleSend = (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!inputText.trim() && !attachmentPreview) return;
+    if (isSending || !activeChannelId) return;
 
-    const newMessage: ChatMessage = {
-      id: Date.now().toString(),
-      text: inputText,
-      userId: currentUser.id,
-      channelId: activeChannelId, 
-      timestamp: new Date().toISOString(),
-      attachments: attachmentPreview ? [attachmentPreview] : []
-    };
-
-    setMessages([...messages, newMessage]);
+    setIsSending(true);
+    const textToSend = inputText.trim();
     setInputText('');
     setAttachmentPreview(null);
     setIsEmojiPickerOpen(false);
+
+    try {
+      // Send to Supabase - real-time subscription will add to messages
+      await chatService.sendMessage(activeChannelId, textToSend);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      // Restore the input if send failed
+      setInputText(textToSend);
+      alert('Nie udało się wysłać wiadomości. Spróbuj ponownie.');
+    } finally {
+      setIsSending(false);
+    }
   };
 
   const handleEmojiClick = (emoji: string) => {
@@ -294,7 +452,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                >
                    <Plus className="w-5 h-5"/>
                </button>
-               <button onClick={() => setIsSidebarOpen(false)} className="p-2 md:hidden hover:bg-slate-200 rounded-full transition-colors">
+               <button onClick={() => setIsSidebarOpen(false)} className="p-2 md:hidden hover:bg-slate-200 rounded-full transition-colors" title="Zamknij panel">
                    <X className="w-5 h-5"/>
                </button>
            </div>
@@ -336,33 +494,6 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                   </div>
                </div>
            ))}
-
-           <div className="px-4 py-2 mt-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Direct Messages</div>
-           {filteredUsers.map(user => {
-               const lastMsg = messages.filter(m => (m.userId === user.id && m.channelId === currentUser.id) || (m.userId === currentUser.id && m.channelId === user.id)).pop();
-               
-               return (
-                <div 
-                    key={user.id}
-                    onClick={() => { setActiveChannelId(user.id); setIsSidebarOpen(false); }}
-                    className={`flex items-center px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors border-l-4 ${activeChannelId === user.id ? 'bg-blue-50 border-blue-500' : 'border-transparent'}`}
-                >
-                    <div className="relative mr-3 shrink-0">
-                        <img src={user.avatar} className="w-10 h-10 rounded-full object-cover" alt={user.name} />
-                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${user.status === 'Online' ? 'bg-emerald-500' : user.status === 'Busy' ? 'bg-red-500' : 'bg-slate-400'}`}></div>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-baseline">
-                            <h4 className="font-bold text-slate-800 text-sm truncate">{user.name}</h4>
-                            <span className="text-[10px] text-slate-400">{lastMsg ? formatTime(lastMsg.timestamp) : ''}</span>
-                        </div>
-                        <p className={`text-xs truncate ${lastMsg ? 'text-slate-500' : 'text-slate-300 italic'}`}>
-                            {lastMsg ? lastMsg.text : 'No messages yet'}
-                        </p>
-                    </div>
-                </div>
-               );
-           })}
         </div>
       </div>
 
@@ -373,28 +504,18 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
         {/* Chat Header */}
         <div className="h-16 bg-slate-50 border-b border-slate-200 flex items-center justify-between px-3 md:px-4 shrink-0 relative z-10 shadow-sm">
            <div className="flex items-center gap-2 md:gap-3 overflow-hidden flex-1">
-              <button className="md:hidden mr-1 text-slate-500 hover:bg-slate-200 p-1.5 rounded-full transition-colors" onClick={() => setIsSidebarOpen(true)}>
+              <button className="md:hidden mr-1 text-slate-500 hover:bg-slate-200 p-1.5 rounded-full transition-colors" onClick={() => setIsSidebarOpen(true)} title="Otwórz listę czatów">
                  <ArrowLeft className="w-6 h-6" />
               </button>
               
-              {activeChannel.type === 'group' ? (
-                  <div className={`w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center text-white shrink-0 ${activeChannel.color || 'bg-blue-500'}`}>
-                      <Hash className="w-5 h-5" />
-                  </div>
-              ) : (
-                  <img src={users.find(u => u.id === activeChannelId)?.avatar} className="w-9 h-9 md:w-10 md:h-10 rounded-full object-cover shrink-0" alt="User" />
-              )}
+              <div className={`w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center text-white shrink-0 ${activeChannel.color || 'bg-blue-500'}`}>
+                  <Hash className="w-5 h-5" />
+              </div>
               
               <div className="flex flex-col min-w-0 flex-1">
                   <h3 className="font-bold text-slate-800 leading-tight truncate text-sm md:text-base">{activeChannel.name}</h3>
                   <span className="text-xs text-slate-500 flex items-center truncate">
-                     {activeChannel.type === 'group' ? (
-                         <span className="truncate block w-full">Anna, Mehmet, Jan, You</span>
-                     ) : (
-                         <span className={users.find(u => u.id === activeChannelId)?.status === 'Online' ? 'text-emerald-500 font-bold' : ''}>
-                             {users.find(u => u.id === activeChannelId)?.status || 'Offline'}
-                         </span>
-                     )}
+                     <span className="truncate block w-full">Kanał grupowy</span>
                   </span>
               </div>
            </div>
@@ -411,26 +532,29 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                           placeholder={t.search_messages}
                           className="w-full md:w-48 bg-transparent border-none outline-none text-sm text-slate-700 min-w-[50px]"
                        />
-                       <button onClick={() => { setIsChatSearchOpen(false); setChatSearch(''); }} className="ml-2 hover:text-red-500 shrink-0"><X className="w-4 h-4"/></button>
+                       <button onClick={() => { setIsChatSearchOpen(false); setChatSearch(''); }} className="ml-2 hover:text-red-500 shrink-0" title="Zamknij wyszukiwanie"><X className="w-4 h-4"/></button>
                    </div>
                ) : (
-                   <button onClick={() => setIsChatSearchOpen(true)} className="p-2 hover:bg-slate-200 rounded-full transition-colors">
+                   <button onClick={() => setIsChatSearchOpen(true)} className="p-2 hover:bg-slate-200 rounded-full transition-colors" title="Szukaj w wiadomościach">
                        <Search className="w-5 h-5"/>
                    </button>
                )}
-               <button className="p-2 hover:bg-slate-200 rounded-full transition-colors"><MoreVertical className="w-5 h-5"/></button>
+               <button className="p-2 hover:bg-slate-200 rounded-full transition-colors" title="Więcej opcji"><MoreVertical className="w-5 h-5"/></button>
            </div>
         </div>
 
         {/* Messages List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-2 relative z-10" ref={scrollRef}>
-             {activeMessages.length === 0 && chatSearch && (
-                 <div className="text-center text-slate-500 mt-10">
-                     No messages found for "{chatSearch}"
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 relative z-10" ref={scrollRef} suppressHydrationWarning>
+             {isLoading ? (
+                 <div className="flex justify-center items-center h-full" key="loading-state">
+                     <Loader2 className="w-8 h-8 text-slate-400 animate-spin" />
                  </div>
-             )}
-             
-             {activeMessages.map((msg, index) => {
+             ) : activeMessages.length === 0 ? (
+                 <div className="text-center text-slate-500 mt-10" key="empty-state">
+                     {chatSearch ? `No messages found for "${chatSearch}"` : 'Brak wiadomości. Rozpocznij rozmowę!'}
+                 </div>
+             ) : (
+                 <>{activeMessages.map((msg, index) => {
                  const isMe = msg.userId === currentUser.id;
                  const sender = getUser(msg.userId);
                  const showName = !isMe && activeChannel.type === 'group' && (index === 0 || activeMessages[index - 1].userId !== msg.userId);
@@ -498,7 +622,8 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                          </div>
                      </div>
                  )
-             })}
+             })}</>
+             )}
         </div>
 
         {/* Input Area */}
@@ -509,7 +634,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                  <div className="absolute bottom-full left-0 right-0 bg-slate-100 p-3 border-t border-slate-200 flex items-center gap-4 animate-[slideUp_0.2s]">
                       <div className="relative">
                           {attachmentPreview.type === 'image' ? (
-                              <img src={attachmentPreview.url} className="w-16 h-16 object-cover rounded-lg border border-slate-300" />
+                              <img src={attachmentPreview.url} className="w-16 h-16 object-cover rounded-lg border border-slate-300" alt="Podgląd załącznika" />
                           ) : (
                               <div className="w-16 h-16 bg-white border border-slate-300 rounded-lg flex items-center justify-center">
                                   {attachmentPreview.type === 'voice' ? <Mic className="w-6 h-6 text-red-500" /> : <FileText className="w-6 h-6 text-blue-500" />}
@@ -518,6 +643,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                           <button 
                              onClick={() => setAttachmentPreview(null)}
                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"
+                             title="Usuń załącznik"
                           >
                               <X className="w-3 h-3" />
                           </button>
@@ -603,6 +729,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
              <button 
                 onClick={() => setIsEmojiPickerOpen(!isEmojiPickerOpen)}
                 className={`p-2 sm:p-2.5 rounded-full transition-colors shrink-0 ${isEmojiPickerOpen ? 'bg-blue-100 text-blue-600' : 'text-slate-500 hover:bg-slate-200'}`}
+                title="Emoji i naklejki"
              >
                  {pickerTab === 'gifs' && isEmojiPickerOpen ? <Film className="w-6 h-6" /> : pickerTab === 'stickers' && isEmojiPickerOpen ? <Sticker className="w-6 h-6" /> : <Smile className="w-6 h-6" />}
              </button>
@@ -611,6 +738,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                  <button 
                     onClick={() => fileInputRef.current?.click()}
                     className="p-2 sm:p-2.5 text-slate-500 hover:bg-slate-200 rounded-full transition-colors"
+                    title="Dodaj załącznik"
                  >
                     <Paperclip className="w-6 h-6" />
                  </button>
@@ -620,6 +748,8 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                     className="hidden"
                     onChange={handleFileUpload}
                     accept="image/*,.pdf,.doc,.docx"
+                    title="Wybierz plik do wysłania"
+                    aria-label="Wybierz plik do wysłania"
                  />
              </div>
 
@@ -635,23 +765,31 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                  />
              </div>
 
-             {inputText.trim() || attachmentPreview ? (
-                 <button 
-                    onClick={() => handleSend()}
-                    className="p-2.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-all shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95 shrink-0"
-                 >
-                     <Send className="w-5 h-5 ml-0.5" />
-                 </button>
-             ) : (
-                 <button 
-                    onClick={isRecording ? stopRecording : startRecording}
-                    className={`p-2.5 rounded-full transition-all shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95 shrink-0 ${
-                        isRecording ? 'bg-red-500 text-white animate-pulse' : 'bg-blue-600 text-white hover:bg-blue-700'
-                    }`}
-                 >
-                    {isRecording ? <div className="w-5 h-5 bg-white rounded-sm mx-auto" /> : <Mic className="w-5 h-5" />}
-                 </button>
-             )}
+             <button 
+                onClick={() => {
+                    if (inputText.trim() || attachmentPreview) {
+                        handleSend();
+                    } else if (isRecording) {
+                        stopRecording();
+                    } else {
+                        startRecording();
+                    }
+                }}
+                disabled={isSending}
+                className={`p-2.5 rounded-full transition-all shadow-md hover:shadow-lg transform hover:scale-105 active:scale-95 shrink-0 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isRecording && !(inputText.trim() || attachmentPreview)
+                        ? 'bg-red-500 text-white animate-pulse' 
+                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+                title={inputText.trim() || attachmentPreview ? 'Wyślij wiadomość' : (isRecording ? 'Zatrzymaj nagrywanie' : 'Nagraj głos')}
+             >
+                 <span className="flex items-center justify-center w-5 h-5">
+                     {isSending && <Loader2 className="w-5 h-5 animate-spin" />}
+                     {!isSending && (inputText.trim() || attachmentPreview) && <Send className="w-5 h-5 ml-0.5" />}
+                     {!isSending && !(inputText.trim() || attachmentPreview) && isRecording && <div className="w-5 h-5 bg-white rounded-sm" />}
+                     {!isSending && !(inputText.trim() || attachmentPreview) && !isRecording && <Mic className="w-5 h-5" />}
+                 </span>
+             </button>
         </div>
 
       </div>
@@ -662,7 +800,7 @@ export const Chat: React.FC<ChatProps> = ({ messages, setMessages, users, curren
                <div className="bg-white rounded-2xl shadow-2xl w-[400px] max-w-full overflow-hidden">
                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                        <h3 className="font-bold text-slate-800">{t.new_group}</h3>
-                       <button onClick={() => setIsCreateGroupOpen(false)} className="text-slate-400 hover:text-red-500">
+                       <button onClick={() => setIsCreateGroupOpen(false)} className="text-slate-400 hover:text-red-500" title="Zamknij">
                            <X className="w-5 h-5" />
                        </button>
                    </div>

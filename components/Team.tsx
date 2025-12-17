@@ -1,8 +1,9 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Language } from '../types';
 import { DICTIONARY } from '../constants';
-import { Mail, Shield, Phone, MapPin, Globe, Linkedin, CheckCircle2 } from 'lucide-react';
+import { Mail, Shield, Phone, MapPin, Globe, Linkedin, CheckCircle2, UserPlus, X, Copy, Check, Loader2, Clock, Send } from 'lucide-react';
+import { invitesService, OrganizationInvite } from '../src/services/invitesService';
 
 interface TeamProps {
   users: User[];
@@ -11,6 +12,74 @@ interface TeamProps {
 
 export const Team: React.FC<TeamProps> = ({ users, language }) => {
   const t = DICTIONARY[language];
+  
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<'Admin' | 'Manager' | 'Accountant' | 'Viewer'>('Accountant');
+  const [pendingInvites, setPendingInvites] = useState<OrganizationInvite[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  // Load pending invites
+  useEffect(() => {
+    loadPendingInvites();
+  }, []);
+
+  const loadPendingInvites = async () => {
+    try {
+      setIsLoading(true);
+      const invites = await invitesService.getPendingInvites();
+      setPendingInvites(invites);
+    } catch (err) {
+      console.error('Error loading invites:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSendInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+
+    setIsSending(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const invite = await invitesService.createInvite(inviteEmail, inviteRole);
+      setPendingInvites(prev => [invite, ...prev]);
+      setInviteEmail('');
+      setSuccess(`Zaproszenie wysłane do ${inviteEmail}!`);
+      
+      // Copy link to clipboard
+      const link = invitesService.getInviteLink(invite.token);
+      await navigator.clipboard.writeText(link);
+      setSuccess(`Zaproszenie utworzone! Link skopiowany do schowka.`);
+    } catch (err: any) {
+      setError(err.message || 'Nie udało się wysłać zaproszenia');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleCopyLink = async (token: string) => {
+    const link = invitesService.getInviteLink(token);
+    await navigator.clipboard.writeText(link);
+    setCopiedToken(token);
+    setTimeout(() => setCopiedToken(null), 2000);
+  };
+
+  const handleCancelInvite = async (inviteId: string) => {
+    try {
+      await invitesService.cancelInvite(inviteId);
+      setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+    } catch (err) {
+      console.error('Error cancelling invite:', err);
+    }
+  };
 
   return (
     <div className="space-y-8 pb-8">
@@ -26,12 +95,19 @@ export const Team: React.FC<TeamProps> = ({ users, language }) => {
         }
       `}</style>
 
-      <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
         <div>
             <h2 className="text-3xl font-black text-slate-800">{t.team}</h2>
             <p className="text-slate-500 text-sm mt-1">{t.meet_team}</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+             <button
+                onClick={() => setIsInviteModalOpen(true)}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-4 py-2 rounded-xl flex items-center gap-2 transition-colors shadow-lg shadow-blue-500/20"
+             >
+                 <UserPlus className="w-4 h-4" />
+                 Zaproś użytkownika
+             </button>
              <div className="bg-blue-50 px-4 py-2 rounded-xl flex items-center gap-2">
                  <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
                  <span className="text-blue-700 font-bold text-sm">{users.filter(u => u.status === 'Online').length} Online</span>
@@ -41,6 +117,42 @@ export const Team: React.FC<TeamProps> = ({ users, language }) => {
              </span>
         </div>
       </div>
+
+      {/* Pending Invites Section */}
+      {pendingInvites.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
+          <h3 className="font-bold text-amber-800 mb-4 flex items-center gap-2">
+            <Clock className="w-5 h-5" />
+            Oczekujące zaproszenia ({pendingInvites.length})
+          </h3>
+          <div className="space-y-3">
+            {pendingInvites.map(invite => (
+              <div key={invite.id} className="flex items-center justify-between bg-white p-3 rounded-xl border border-amber-200">
+                <div>
+                  <p className="font-bold text-slate-800">{invite.email}</p>
+                  <p className="text-xs text-slate-500">Rola: {invite.role} • Wygasa: {new Date(invite.expires_at).toLocaleDateString('pl')}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleCopyLink(invite.token)}
+                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Kopiuj link zaproszenia"
+                  >
+                    {copiedToken === invite.token ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                  <button
+                    onClick={() => handleCancelInvite(invite.id)}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Anuluj zaproszenie"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {users.map((user) => (
@@ -155,6 +267,103 @@ export const Team: React.FC<TeamProps> = ({ users, language }) => {
           </div>
         ))}
       </div>
+
+      {/* Invite Modal */}
+      {isInviteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-[450px] max-w-full overflow-hidden">
+            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-blue-600" />
+                Zaproś użytkownika do zespołu
+              </h3>
+              <button 
+                onClick={() => { setIsInviteModalOpen(false); setError(null); setSuccess(null); }} 
+                className="text-slate-400 hover:text-red-500"
+                title="Zamknij"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <form onSubmit={handleSendInvite} className="p-6 space-y-4">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+                  {error}
+                </div>
+              )}
+              
+              {success && (
+                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">
+                  {success}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+                  Email użytkownika
+                </label>
+                <input 
+                  type="email" 
+                  required
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700"
+                  placeholder="jan.kowalski@firma.pl"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-500 uppercase mb-1.5">
+                  Rola w zespole
+                </label>
+                <select 
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as any)}
+                  className="w-full p-2.5 border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-medium text-slate-700"
+                  title="Wybierz rolę"
+                >
+                  <option value="Viewer">Przeglądający (tylko odczyt)</option>
+                  <option value="Accountant">Księgowy</option>
+                  <option value="Manager">Menadżer</option>
+                  <option value="Admin">Administrator</option>
+                </select>
+              </div>
+
+              <div className="bg-blue-50 p-4 rounded-xl text-sm text-blue-700">
+                <p className="font-bold mb-1">Jak to działa?</p>
+                <ol className="list-decimal list-inside space-y-1 text-xs">
+                  <li>Wyślij zaproszenie - link zostanie skopiowany do schowka</li>
+                  <li>Przekaż link zapraszanej osobie</li>
+                  <li>Osoba rejestruje konto używając tego samego emaila</li>
+                  <li>Po rejestracji automatycznie dołączy do zespołu</li>
+                </ol>
+              </div>
+
+              <div className="pt-2">
+                <button 
+                  type="submit"
+                  disabled={isSending}
+                  className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Wysyłanie...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      Wyślij zaproszenie
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

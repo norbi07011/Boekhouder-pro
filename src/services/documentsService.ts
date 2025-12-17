@@ -74,13 +74,13 @@ export const documentsService = {
       quarter?: number;
     }
   ): Promise<Document> {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) throw new Error('Not authenticated');
 
     const { data: profile } = await supabase
       .from('profiles')
       .select('organization_id')
-      .eq('id', user.id)
+      .eq('id', session.user.id)
       .single();
 
     if (!profile?.organization_id) throw new Error('No organization found');
@@ -116,7 +116,7 @@ export const documentsService = {
         category: metadata.category || 'other',
         year: metadata.year || new Date().getFullYear(),
         quarter: metadata.quarter || null,
-        uploaded_by: user.id
+        uploaded_by: session.user.id
       })
       .select()
       .single();

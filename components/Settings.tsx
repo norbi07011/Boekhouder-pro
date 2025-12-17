@@ -1,8 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Language, User } from '../types';
 import { DICTIONARY } from '../constants';
-import { Bell, Shield, Globe, Monitor, Smartphone, Volume2, Lock, Eye, Save, Check, Briefcase, Calculator } from 'lucide-react';
+import { Bell, Shield, Globe, Monitor, Smartphone, Volume2, Lock, Eye, Save, Check, Briefcase, Calculator, Clock, MessageSquare, CheckSquare, AlertTriangle } from 'lucide-react';
+import { settingsService } from '../src/services/notificationsService';
 
 interface SettingsProps {
   language: Language;
@@ -27,7 +28,10 @@ export const Settings: React.FC<SettingsProps> = ({
   const [activeTab, setActiveTab] = useState<'general' | 'notifications' | 'security' | 'accounting'>('general');
   const [saved, setSaved] = useState(false);
 
-  // Mock Settings State for other values
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Settings State
   const [settings, setSettings] = useState({
       emailNotifs: true,
       pushNotifs: true,
@@ -35,12 +39,83 @@ export const Settings: React.FC<SettingsProps> = ({
       twoFactor: true,
       sessionTimeout: '30',
       defaultCurrency: 'EUR',
-      fiscalYearEnd: '12-31'
+      fiscalYearEnd: '12-31',
+      // New notification settings
+      reminderTime: '30', // minutes before event
+      notifyTaskAssigned: true,
+      notifyTaskDue: true,
+      notifyMessages: true,
+      notifyDocuments: true
   });
 
-  const handleSave = () => {
+  // Load settings from database
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const dbSettings = await settingsService.get();
+        if (dbSettings) {
+          setSettings(prev => ({
+            ...prev,
+            emailNotifs: dbSettings.email_notifications ?? true,
+            pushNotifs: dbSettings.push_notifications ?? true,
+            sound: dbSettings.sound_enabled ?? true,
+            defaultCurrency: dbSettings.default_currency || 'EUR',
+            fiscalYearEnd: dbSettings.fiscal_year_end || '12-31',
+            reminderTime: (dbSettings as any).reminder_time?.toString() || '30',
+            notifyTaskAssigned: (dbSettings as any).notify_task_assigned ?? true,
+            notifyTaskDue: (dbSettings as any).notify_task_due ?? true,
+            notifyMessages: (dbSettings as any).notify_messages ?? true,
+            notifyDocuments: (dbSettings as any).notify_documents ?? true,
+            twoFactor: (dbSettings as any).two_factor ?? false,
+            sessionTimeout: (dbSettings as any).session_timeout?.toString() || '30'
+          }));
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  // Request browser notification permission
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        new Notification('Powiadomienia włączone!', {
+          body: 'Będziesz otrzymywać powiadomienia z Admin Holland.',
+          icon: '/logo.jpg'
+        });
+      }
+    }
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await settingsService.update({
+        email_notifications: settings.emailNotifs,
+        push_notifications: settings.pushNotifs,
+        sound_enabled: settings.sound,
+        default_currency: settings.defaultCurrency,
+        fiscal_year_end: settings.fiscalYearEnd,
+        reminder_time: parseInt(settings.reminderTime),
+        notify_task_assigned: settings.notifyTaskAssigned,
+        notify_task_due: settings.notifyTaskDue,
+        notify_messages: settings.notifyMessages,
+        two_factor: settings.twoFactor,
+        session_timeout: parseInt(settings.sessionTimeout)
+      } as any);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      alert('Błąd zapisu ustawień');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const toggleMock = (key: keyof typeof settings) => {
@@ -137,6 +212,8 @@ export const Settings: React.FC<SettingsProps> = ({
                                     <button 
                                         onClick={() => setDarkMode(!darkMode)}
                                         className={`w-12 h-6 rounded-full p-1 transition-colors ${darkMode ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        title="Przełącz tryb ciemny"
+                                        aria-label="Przełącz tryb ciemny"
                                     >
                                         <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${darkMode ? 'translate-x-6' : ''}`} />
                                     </button>
@@ -149,6 +226,8 @@ export const Settings: React.FC<SettingsProps> = ({
                                     <button 
                                         onClick={() => setCompactMode(!compactMode)}
                                         className={`w-12 h-6 rounded-full p-1 transition-colors ${compactMode ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        title="Przełącz tryb kompaktowy"
+                                        aria-label="Przełącz tryb kompaktowy"
                                     >
                                         <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${compactMode ? 'translate-x-6' : ''}`} />
                                     </button>
@@ -172,6 +251,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                         value={settings.defaultCurrency}
                                         onChange={(e) => setSettings({...settings, defaultCurrency: e.target.value})}
                                         className="w-full p-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                                        title="Wybierz domyślną walutę"
                                     >
                                         <option value="EUR">EUR (€)</option>
                                         <option value="USD">USD ($)</option>
@@ -184,12 +264,13 @@ export const Settings: React.FC<SettingsProps> = ({
                                     <label className="block font-bold text-slate-700 dark:text-slate-300 text-sm mb-2">{t.fiscal_year}</label>
                                     <input 
                                         type="date" 
-                                        value={`2023-${settings.fiscalYearEnd}`} // Mock year for input
+                                        value={`2023-${settings.fiscalYearEnd}`}
                                         onChange={(e) => {
                                             const val = e.target.value;
                                             if(val) setSettings({...settings, fiscalYearEnd: val.substring(5)});
                                         }}
                                         className="w-full p-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                                        title="Wybierz koniec roku podatkowego"
                                     />
                                 </div>
                             </div>
@@ -200,11 +281,141 @@ export const Settings: React.FC<SettingsProps> = ({
                 {/* NOTIFICATIONS TAB */}
                 {activeTab === 'notifications' && (
                     <div className="space-y-8 animate-[fadeIn_0.3s]">
+                        {/* Browser Permission Banner */}
+                        {'Notification' in window && Notification.permission !== 'granted' && (
+                          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/50 rounded-xl p-4 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <AlertTriangle className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                              <div>
+                                <p className="font-bold text-blue-800 dark:text-blue-300 text-sm">
+                                  {language === 'PL' ? 'Włącz powiadomienia w przeglądarce' : 'Enable browser notifications'}
+                                </p>
+                                <p className="text-xs text-blue-600 dark:text-blue-400">
+                                  {language === 'PL' ? 'Aby otrzymywać powiadomienia push, musisz je włączyć w przeglądarce.' : 'To receive push notifications, you need to enable them in your browser.'}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={requestNotificationPermission}
+                              className="px-4 py-2 bg-blue-600 text-white text-sm font-bold rounded-lg hover:bg-blue-700 transition-colors shrink-0"
+                            >
+                              {language === 'PL' ? 'Włącz' : 'Enable'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Reminder Time Setting */}
                         <div>
-                            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center">
-                                <Bell className="w-5 h-5 mr-2 text-orange-500" /> {t.notifications}
+                            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center">
+                                <Clock className="w-5 h-5 mr-2 text-blue-500" /> 
+                                {language === 'PL' ? 'Czas przypomnienia' : 'Reminder Time'}
                             </h3>
-                            <div className="space-y-6">
+                            <div className="bg-slate-50 dark:bg-slate-750 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
+                                <label className="block font-bold text-slate-700 dark:text-slate-300 text-sm mb-2">
+                                  {language === 'PL' ? 'Powiadamiaj mnie przed terminem zadania:' : 'Notify me before task deadline:'}
+                                </label>
+                                <select 
+                                    value={settings.reminderTime}
+                                    onChange={(e) => setSettings({...settings, reminderTime: e.target.value})}
+                                    className="w-full p-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                                    title="Czas przypomnienia"
+                                >
+                                    <option value="5">{language === 'PL' ? '5 minut przed' : '5 minutes before'}</option>
+                                    <option value="10">{language === 'PL' ? '10 minut przed' : '10 minutes before'}</option>
+                                    <option value="15">{language === 'PL' ? '15 minut przed' : '15 minutes before'}</option>
+                                    <option value="30">{language === 'PL' ? '30 minut przed' : '30 minutes before'}</option>
+                                    <option value="60">{language === 'PL' ? '1 godzinę przed' : '1 hour before'}</option>
+                                    <option value="120">{language === 'PL' ? '2 godziny przed' : '2 hours before'}</option>
+                                    <option value="1440">{language === 'PL' ? '1 dzień przed' : '1 day before'}</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Notification Types */}
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center">
+                                <Bell className="w-5 h-5 mr-2 text-orange-500" /> 
+                                {language === 'PL' ? 'Typy powiadomień' : 'Notification Types'}
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-750 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-blue-100 dark:bg-blue-900/40 p-2 rounded-lg">
+                                            <CheckSquare className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">
+                                              {language === 'PL' ? 'Nowe przypisane zadania' : 'New assigned tasks'}
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                              {language === 'PL' ? 'Gdy ktoś przypisze Ci zadanie' : 'When someone assigns you a task'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSettings({...settings, notifyTaskAssigned: !settings.notifyTaskAssigned})}
+                                        className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.notifyTaskAssigned ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        title="Powiadomienia o nowych zadaniach"
+                                    >
+                                        <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.notifyTaskAssigned ? 'translate-x-6' : ''}`} />
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-750 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-orange-100 dark:bg-orange-900/40 p-2 rounded-lg">
+                                            <Clock className="w-5 h-5 text-orange-600 dark:text-orange-400" />
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">
+                                              {language === 'PL' ? 'Przypomnienia o terminach' : 'Deadline reminders'}
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                              {language === 'PL' ? 'Przed terminem wykonania zadania' : 'Before task deadline'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSettings({...settings, notifyTaskDue: !settings.notifyTaskDue})}
+                                        className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.notifyTaskDue ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        title="Przypomnienia o terminach"
+                                    >
+                                        <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.notifyTaskDue ? 'translate-x-6' : ''}`} />
+                                    </button>
+                                </div>
+
+                                <div className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-750 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-green-100 dark:bg-green-900/40 p-2 rounded-lg">
+                                            <MessageSquare className="w-5 h-5 text-green-600 dark:text-green-400" />
+                                        </div>
+                                        <div>
+                                            <p className="font-bold text-slate-700 dark:text-slate-200 text-sm">
+                                              {language === 'PL' ? 'Nowe wiadomości na grupie' : 'New group messages'}
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-slate-400">
+                                              {language === 'PL' ? 'Gdy pojawi się nowa wiadomość w kanale' : 'When a new message appears in a channel'}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setSettings({...settings, notifyMessages: !settings.notifyMessages})}
+                                        className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.notifyMessages ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        title="Powiadomienia o wiadomościach"
+                                    >
+                                        <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.notifyMessages ? 'translate-x-6' : ''}`} />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Push & Sound Settings */}
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center">
+                                <Monitor className="w-5 h-5 mr-2 text-purple-500" /> 
+                                {language === 'PL' ? 'Sposób dostarczania' : 'Delivery Method'}
+                            </h3>
+                            <div className="space-y-4">
                                 <div className="flex items-start">
                                     <div className="bg-slate-100 dark:bg-slate-700 p-2 rounded-lg mr-4">
                                         <Monitor className="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -213,8 +424,9 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="font-bold text-slate-700 dark:text-slate-200">{t.push_notifs}</p>
                                             <button 
-                                                onClick={() => toggleMock('pushNotifs')}
+                                                onClick={() => setSettings({...settings, pushNotifs: !settings.pushNotifs})}
                                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.pushNotifs ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                                title="Powiadomienia push"
                                             >
                                                 <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.pushNotifs ? 'translate-x-6' : ''}`} />
                                             </button>
@@ -231,8 +443,9 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="font-bold text-slate-700 dark:text-slate-200">{t.email_digest}</p>
                                             <button 
-                                                onClick={() => toggleMock('emailNotifs')}
+                                                onClick={() => setSettings({...settings, emailNotifs: !settings.emailNotifs})}
                                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.emailNotifs ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                                title="Powiadomienia email"
                                             >
                                                 <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.emailNotifs ? 'translate-x-6' : ''}`} />
                                             </button>
@@ -249,8 +462,9 @@ export const Settings: React.FC<SettingsProps> = ({
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="font-bold text-slate-700 dark:text-slate-200">{t.sound_effects}</p>
                                             <button 
-                                                onClick={() => toggleMock('sound')}
+                                                onClick={() => setSettings({...settings, sound: !settings.sound})}
                                                 className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.sound ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                                title="Dźwięki powiadomień"
                                             >
                                                 <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.sound ? 'translate-x-6' : ''}`} />
                                             </button>
@@ -285,6 +499,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                     <button 
                                         onClick={() => toggleMock('twoFactor')}
                                         className={`w-12 h-6 rounded-full p-1 transition-colors ${settings.twoFactor ? 'bg-blue-600' : 'bg-slate-300 dark:bg-slate-600'}`}
+                                        title="Weryfikacja dwuetapowa"
                                     >
                                         <div className={`w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${settings.twoFactor ? 'translate-x-6' : ''}`} />
                                     </button>
@@ -296,6 +511,7 @@ export const Settings: React.FC<SettingsProps> = ({
                                         value={settings.sessionTimeout}
                                         onChange={(e) => setSettings({...settings, sessionTimeout: e.target.value})}
                                         className="w-full p-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                                        title="Limit czasu sesji"
                                     >
                                         <option value="15">15 Minutes</option>
                                         <option value="30">30 Minutes</option>

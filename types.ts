@@ -37,7 +37,8 @@ export interface Task {
   id: string;
   title: string;
   description: string;
-  assigneeId: string | null;
+  assigneeId: string | null; // Legacy single assignee (for backwards compatibility)
+  assigneeIds?: string[]; // Multiple assignees
   dueDate: string; // ISO date YYYY-MM-DD
   dueTime?: string; // HH:MM
   status: TaskStatus;

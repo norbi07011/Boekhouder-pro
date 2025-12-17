@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, CheckSquare, Calendar, MessageSquare, FileText, Settings, Globe, Users, UserCircle, X, FileText as LogoIcon } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Calendar, MessageSquare, FileText, Settings, Globe, Users, UserCircle, X } from 'lucide-react';
 import { Language } from '../types';
 import { DICTIONARY } from '../constants';
 
@@ -44,13 +44,18 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, l
         {/* Header */}
         <div className="p-6 flex items-center justify-between border-b border-slate-700">
           <div className="flex items-center">
-             <div className="bg-blue-600 p-2 rounded-lg mr-2">
-               <LogoIcon className="w-6 h-6 text-white" />
+             <img 
+               src="/logo.jpg" 
+               alt="Admin Holland" 
+               className="w-10 h-10 rounded-lg mr-2 object-contain"
+             />
+             <div className="flex flex-col">
+               <h1 className="text-lg font-bold tracking-tight leading-tight">Admin Holland</h1>
+               <span className="text-xs text-blue-400">Boekhouder Connect</span>
              </div>
-             <h1 className="text-xl font-bold tracking-tight">Boekhouder</h1>
           </div>
           {/* Mobile Close Button */}
-          <button onClick={onClose} className="md:hidden text-slate-400 hover:text-white p-1">
+          <button onClick={onClose} className="md:hidden text-slate-400 hover:text-white p-1" title="Zamknij menu">
              <X className="w-6 h-6" />
           </button>
         </div>
