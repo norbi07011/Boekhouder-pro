@@ -24,40 +24,101 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch profile and settings
+  // Fetch profile and settings - simplified without complex timeouts
   const fetchUserData = async (userId: string) => {
     try {
-      const [profileData, settingsData] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', userId).single(),
-        supabase.from('user_settings').select('*').eq('user_id', userId).single()
-      ]);
+      // Fetch profile
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-      if (profileData.data) setProfile(profileData.data);
-      if (settingsData.data) setSettings(settingsData.data);
+      if (profileError) {
+        console.error('Error fetching profile:', profileError);
+      } else if (profileData) {
+        setProfile(profileData);
+      }
     } catch (error) {
-      console.error('Error fetching user data:', error);
+      console.error('Profile fetch error:', error);
+    }
+
+    try {
+      // Fetch settings
+      const { data: settingsData, error: settingsError } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+
+      if (settingsError && settingsError.code !== 'PGRST116') {
+        // PGRST116 = no rows found - that's OK for settings
+        console.error('Error fetching settings:', settingsError);
+      } else if (settingsData) {
+        setSettings(settingsData);
+      }
+    } catch (error) {
+      console.error('Settings fetch error:', error);
     }
   };
 
   // Initialize auth state
   useEffect(() => {
+    let isMounted = true;
+    let timeoutId: NodeJS.Timeout;
+    
     const initAuth = async () => {
+      console.log('[Auth] Starting initialization...');
+      
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Check for old session key and remove it
+        const oldKey = 'sb-rncjcsguvqykmpkcwmlj-auth-token';
+        if (localStorage.getItem(oldKey)) {
+          console.log('[Auth] Removing old session key');
+          localStorage.removeItem(oldKey);
+        }
+
+        console.log('[Auth] Calling getSession...');
+        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('[Auth] getSession returned:', { hasSession: !!session, error });
         
-        if (session?.user) {
+        if (error) {
+          console.error('[Auth] Session error:', error);
+          await supabase.auth.signOut();
+          if (isMounted) setLoading(false);
+          return;
+        }
+        
+        if (session?.user && isMounted) {
+          console.log('[Auth] User found:', session.user.email);
           setUser({
             id: session.user.id,
             email: session.user.email!
           });
           await fetchUserData(session.user.id);
+        } else {
+          console.log('[Auth] No session found');
         }
       } catch (error) {
-        console.error('Auth init error:', error);
+        console.error('[Auth] Init error:', error);
+        try {
+          await supabase.auth.signOut();
+        } catch {}
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          console.log('[Auth] Setting loading to false');
+          setLoading(false);
+        }
       }
     };
+
+    // Fallback timeout - if auth takes more than 5 seconds, force stop loading
+    timeoutId = setTimeout(() => {
+      if (isMounted) {
+        console.warn('[Auth] Timeout - forcing loading to stop');
+        setLoading(false);
+      }
+    }, 5000);
 
     initAuth();
 
@@ -79,6 +140,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, []);

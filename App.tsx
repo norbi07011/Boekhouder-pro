@@ -355,6 +355,7 @@ const App: React.FC = () => {
         setLanguage={setLanguage}
         isOpen={isSidebarOpen}
         onClose={closeSidebar}
+        onLogout={handleLogout}
       />
 
       <main className="flex-1 flex flex-col h-full overflow-hidden w-full relative z-10 transition-all duration-300">

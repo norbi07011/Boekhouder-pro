@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, CheckSquare, Calendar, MessageSquare, FileText, Settings, Globe, Users, UserCircle, X } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Calendar, MessageSquare, FileText, Settings, Globe, Users, UserCircle, X, LogOut } from 'lucide-react';
 import { Language } from '../types';
 import { DICTIONARY } from '../constants';
 
@@ -11,9 +11,10 @@ interface SidebarProps {
   setLanguage: (lang: Language) => void;
   isOpen: boolean;
   onClose: () => void;
+  onLogout?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, language, setLanguage, isOpen, onClose }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, language, setLanguage, isOpen, onClose, onLogout }) => {
   const t = DICTIONARY[language];
 
   const menuItems = [
@@ -90,11 +91,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, l
 
           <button 
             onClick={() => setCurrentView('settings')}
-            className={`w-full flex items-center p-2 text-sm rounded-lg ${currentView === 'settings' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}
+            className={`w-full flex items-center p-2 text-sm rounded-lg mb-2 ${currentView === 'settings' ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-white'}`}
           >
             <Settings className="w-4 h-4 mr-2" />
             {t.settings}
           </button>
+
+          {/* Logout Button */}
+          {onLogout && (
+            <button 
+              onClick={onLogout}
+              className="w-full flex items-center p-2 text-sm rounded-lg text-red-400 hover:text-red-300 hover:bg-red-900/20 transition-colors"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              {language === 'PL' ? 'Wyloguj się' : language === 'TR' ? 'Çıkış yap' : 'Uitloggen'}
+            </button>
+          )}
         </div>
       </div>
     </>

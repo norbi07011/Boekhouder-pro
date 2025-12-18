@@ -13,11 +13,30 @@ export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
-    detectSessionInUrl: true
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10
+    detectSessionInUrl: false,
+    storageKey: 'boekhouder-auth',
+    storage: {
+      getItem: (key) => {
+        try {
+          const item = localStorage.getItem(key);
+          console.log('[Supabase] Getting session from storage');
+          return item;
+        } catch {
+          return null;
+        }
+      },
+      setItem: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+          console.log('[Supabase] Session saved to storage');
+        } catch {}
+      },
+      removeItem: (key) => {
+        try {
+          localStorage.removeItem(key);
+          console.log('[Supabase] Session removed from storage');
+        } catch {}
+      }
     }
   }
 });

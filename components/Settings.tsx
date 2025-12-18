@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { Language, User } from '../types';
 import { DICTIONARY } from '../constants';
-import { Bell, Shield, Globe, Monitor, Smartphone, Volume2, Lock, Eye, Save, Check, Briefcase, Calculator, Clock, MessageSquare, CheckSquare, AlertTriangle } from 'lucide-react';
+import { Bell, Shield, Globe, Monitor, Smartphone, Volume2, Lock, Eye, Save, Check, Briefcase, Calculator, Clock, MessageSquare, CheckSquare, AlertTriangle, Key, Loader2 } from 'lucide-react';
 import { settingsService } from '../src/services/notificationsService';
+import { authService } from '../src/services/authService';
 
 interface SettingsProps {
   language: Language;
@@ -30,6 +31,14 @@ export const Settings: React.FC<SettingsProps> = ({
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
 
   // Settings State
   const [settings, setSettings] = useState({
@@ -480,7 +489,108 @@ export const Settings: React.FC<SettingsProps> = ({
                 {/* SECURITY TAB */}
                 {activeTab === 'security' && (
                     <div className="space-y-8 animate-[fadeIn_0.3s]">
+                         {/* CHANGE PASSWORD SECTION */}
                          <div>
+                            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center">
+                                <Key className="w-5 h-5 mr-2 text-blue-500" /> 
+                                {language === 'PL' ? 'Zmień hasło' : language === 'TR' ? 'Şifre değiştir' : 'Wachtwoord wijzigen'}
+                            </h3>
+
+                            {passwordSuccess && (
+                                <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700/50 rounded-xl p-4 mb-4 flex items-center">
+                                    <Check className="w-5 h-5 text-green-600 dark:text-green-400 mr-2" />
+                                    <p className="text-sm font-bold text-green-700 dark:text-green-300">
+                                        {language === 'PL' ? 'Hasło zostało zmienione pomyślnie!' : 'Password changed successfully!'}
+                                    </p>
+                                </div>
+                            )}
+
+                            {passwordError && (
+                                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700/50 rounded-xl p-4 mb-4 flex items-center">
+                                    <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 mr-2" />
+                                    <p className="text-sm font-bold text-red-700 dark:text-red-300">{passwordError}</p>
+                                </div>
+                            )}
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-300 text-sm mb-2">
+                                        {language === 'PL' ? 'Nowe hasło' : language === 'TR' ? 'Yeni şifre' : 'Nieuw wachtwoord'}
+                                    </label>
+                                    <input 
+                                        type="password"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        minLength={6}
+                                        className="w-full p-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                                    />
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        {language === 'PL' ? 'Minimum 6 znaków' : 'Minimum 6 characters'}
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="block font-bold text-slate-700 dark:text-slate-300 text-sm mb-2">
+                                        {language === 'PL' ? 'Potwierdź nowe hasło' : language === 'TR' ? 'Yeni şifreyi onayla' : 'Bevestig nieuw wachtwoord'}
+                                    </label>
+                                    <input 
+                                        type="password"
+                                        value={confirmPassword}
+                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                        placeholder="••••••••"
+                                        minLength={6}
+                                        className="w-full p-2.5 bg-white dark:bg-slate-700 border border-slate-300 dark:border-slate-600 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 text-slate-700 dark:text-slate-200"
+                                    />
+                                </div>
+
+                                <button 
+                                    onClick={async () => {
+                                        setPasswordError(null);
+                                        setPasswordSuccess(false);
+                                        
+                                        if (newPassword.length < 6) {
+                                            setPasswordError(language === 'PL' ? 'Hasło musi mieć minimum 6 znaków' : 'Password must be at least 6 characters');
+                                            return;
+                                        }
+                                        
+                                        if (newPassword !== confirmPassword) {
+                                            setPasswordError(language === 'PL' ? 'Hasła nie są identyczne' : 'Passwords do not match');
+                                            return;
+                                        }
+                                        
+                                        setIsChangingPassword(true);
+                                        try {
+                                            await authService.updatePassword(newPassword);
+                                            setPasswordSuccess(true);
+                                            setNewPassword('');
+                                            setConfirmPassword('');
+                                            setTimeout(() => setPasswordSuccess(false), 5000);
+                                        } catch (error: any) {
+                                            setPasswordError(error.message || (language === 'PL' ? 'Błąd zmiany hasła' : 'Password change failed'));
+                                        } finally {
+                                            setIsChangingPassword(false);
+                                        }
+                                    }}
+                                    disabled={isChangingPassword || !newPassword || !confirmPassword}
+                                    className="w-full bg-blue-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center"
+                                >
+                                    {isChangingPassword ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            {language === 'PL' ? 'Zmieniam...' : 'Changing...'}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Key className="w-4 h-4 mr-2" />
+                                            {language === 'PL' ? 'Zmień hasło' : language === 'TR' ? 'Şifre değiştir' : 'Wachtwoord wijzigen'}
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
                             <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-6 flex items-center">
                                 <Lock className="w-5 h-5 mr-2 text-red-500" /> {t.account_security}
                             </h3>

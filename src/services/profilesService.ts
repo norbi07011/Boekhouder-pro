@@ -22,9 +22,30 @@ export const profilesService = {
 
   // Get all profiles in organization
   async getAllInOrganization(): Promise<Profile[]> {
+    // First get current user's organization
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.user) return [];
+
+    const { data: currentProfile } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', session.user.id)
+      .single();
+
+    if (!currentProfile?.organization_id) {
+      // User has no organization - return only their own profile
+      const { data } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', session.user.id);
+      return data || [];
+    }
+
+    // Get all profiles in the same organization
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
+      .eq('organization_id', currentProfile.organization_id)
       .order('name');
 
     if (error) throw error;

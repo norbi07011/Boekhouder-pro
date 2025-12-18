@@ -346,10 +346,12 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 -- =====================================================
 
 -- Profiles: Users can read all profiles in their org, update their own
+-- Also allow users to read their own profile even without org
 CREATE POLICY "Users can view profiles in their organization" ON profiles
     FOR SELECT USING (
-        organization_id IN (
-            SELECT organization_id FROM profiles WHERE id = auth.uid()
+        id = auth.uid() 
+        OR organization_id IN (
+            SELECT organization_id FROM profiles WHERE id = auth.uid() AND organization_id IS NOT NULL
         )
     );
 
@@ -359,10 +361,21 @@ CREATE POLICY "Users can update their own profile" ON profiles
 CREATE POLICY "Users can insert their own profile" ON profiles
     FOR INSERT WITH CHECK (id = auth.uid());
 
--- Organizations: Members can read their org
+-- Organizations: Members can read their org, users can create new orgs
 CREATE POLICY "Members can view their organization" ON organizations
     FOR SELECT USING (
         id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    );
+
+CREATE POLICY "Users can create organizations" ON organizations
+    FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Admins can update their organization" ON organizations
+    FOR UPDATE USING (
+        id IN (
+            SELECT organization_id FROM profiles 
+            WHERE id = auth.uid() AND role = 'Admin'
+        )
     );
 
 -- Clients: Organization members can CRUD
@@ -533,19 +546,106 @@ CREATE TRIGGER update_user_settings_updated_at BEFORE UPDATE ON user_settings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =====================================================
+-- ORGANIZATION INVITES (for team invitations)
+-- =====================================================
+
+CREATE TYPE invite_status AS ENUM ('pending', 'accepted', 'cancelled', 'expired');
+
+CREATE TABLE organization_invites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email VARCHAR(255) NOT NULL,
+    invited_by UUID NOT NULL REFERENCES profiles(id),
+    role user_role DEFAULT 'Accountant',
+    token UUID DEFAULT uuid_generate_v4(),
+    status invite_status DEFAULT 'pending',
+    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '7 days'),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    accepted_at TIMESTAMPTZ,
+    UNIQUE(organization_id, email)
+);
+
+CREATE INDEX idx_invites_email ON organization_invites(email);
+CREATE INDEX idx_invites_token ON organization_invites(token);
+CREATE INDEX idx_invites_org ON organization_invites(organization_id);
+
+-- RLS for invites
+ALTER TABLE organization_invites ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Org members can view invites" ON organization_invites
+    FOR SELECT USING (
+        organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    );
+
+CREATE POLICY "Org admins can create invites" ON organization_invites
+    FOR INSERT WITH CHECK (
+        organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    );
+
+CREATE POLICY "Org admins can update invites" ON organization_invites
+    FOR UPDATE USING (
+        organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+    );
+
+-- =====================================================
 -- AUTO-CREATE PROFILE ON SIGNUP
 -- =====================================================
 
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+    new_org_id UUID;
+    pending_invite organization_invites%ROWTYPE;
+    user_name TEXT;
 BEGIN
-    INSERT INTO public.profiles (id, email, name, avatar_url)
-    VALUES (
-        NEW.id,
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
-        NEW.raw_user_meta_data->>'avatar_url'
-    );
+    -- Get user name from metadata or email
+    user_name := COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1));
+    
+    -- Check if there's a pending invite for this email
+    SELECT * INTO pending_invite 
+    FROM organization_invites 
+    WHERE email = LOWER(NEW.email) 
+      AND status = 'pending' 
+      AND expires_at > NOW()
+    ORDER BY created_at DESC
+    LIMIT 1;
+    
+    IF pending_invite.id IS NOT NULL THEN
+        -- User was invited - join existing organization
+        INSERT INTO public.profiles (id, email, name, avatar_url, role, organization_id)
+        VALUES (
+            NEW.id,
+            NEW.email,
+            user_name,
+            NEW.raw_user_meta_data->>'avatar_url',
+            pending_invite.role,
+            pending_invite.organization_id
+        );
+        
+        -- Mark invite as accepted
+        UPDATE organization_invites 
+        SET status = 'accepted', accepted_at = NOW() 
+        WHERE id = pending_invite.id;
+    ELSE
+        -- New user without invite - create personal organization
+        INSERT INTO organizations (name, slug)
+        VALUES (
+            user_name || '''s Organization',
+            LOWER(REPLACE(user_name, ' ', '-')) || '-' || SUBSTR(NEW.id::text, 1, 8)
+        )
+        RETURNING id INTO new_org_id;
+        
+        -- Create profile with new organization
+        INSERT INTO public.profiles (id, email, name, avatar_url, role, organization_id)
+        VALUES (
+            NEW.id,
+            NEW.email,
+            user_name,
+            NEW.raw_user_meta_data->>'avatar_url',
+            'Admin',  -- First user is admin of their own org
+            new_org_id
+        );
+    END IF;
     
     -- Create default settings
     INSERT INTO public.user_settings (user_id)
@@ -555,9 +655,63 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+-- Drop existing trigger if exists and recreate
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- =====================================================
+-- ACCEPT INVITE FUNCTION (RPC)
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION accept_organization_invite(invite_token UUID)
+RETURNS JSONB AS $$
+DECLARE
+    invite_record organization_invites%ROWTYPE;
+    current_profile profiles%ROWTYPE;
+BEGIN
+    -- Get the invite
+    SELECT * INTO invite_record 
+    FROM organization_invites 
+    WHERE token = invite_token 
+      AND status = 'pending' 
+      AND expires_at > NOW();
+    
+    IF invite_record.id IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Invalid or expired invite');
+    END IF;
+    
+    -- Get current user's profile
+    SELECT * INTO current_profile FROM profiles WHERE id = auth.uid();
+    
+    IF current_profile.id IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'User not authenticated');
+    END IF;
+    
+    -- Check if emails match
+    IF LOWER(current_profile.email) != LOWER(invite_record.email) THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Invite is for a different email address');
+    END IF;
+    
+    -- Update user's organization
+    UPDATE profiles 
+    SET organization_id = invite_record.organization_id, 
+        role = invite_record.role,
+        updated_at = NOW()
+    WHERE id = auth.uid();
+    
+    -- Mark invite as accepted
+    UPDATE organization_invites 
+    SET status = 'accepted', accepted_at = NOW() 
+    WHERE id = invite_record.id;
+    
+    RETURN jsonb_build_object(
+        'success', true, 
+        'organization_id', invite_record.organization_id
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- =====================================================
 -- REALTIME SUBSCRIPTIONS
