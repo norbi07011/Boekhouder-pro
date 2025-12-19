@@ -32,13 +32,13 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
         onSuccess?.();
       } else if (mode === 'register') {
         await signUp(email, password, name);
-        setMessage('Sprawdź swoją skrzynkę e-mail, aby potwierdzić konto.');
+        setMessage('Controleer je e-mail om je account te bevestigen.');
       } else if (mode === 'forgot') {
         // TODO: Implement password reset
-        setMessage('Link do resetowania hasła został wysłany na Twój e-mail.');
+        setMessage('Er is een link om je wachtwoord te resetten naar je e-mail gestuurd.');
       }
     } catch (err: any) {
-      setError(err.message || 'Wystąpił błąd. Spróbuj ponownie.');
+      setError(err.message || 'Er is een fout opgetreden. Probeer het opnieuw.');
     } finally {
       setLoading(false);
     }
@@ -48,7 +48,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
     try {
       await signInWithGoogle();
     } catch (err: any) {
-      setError(err.message || 'Błąd logowania przez Google');
+      setError(err.message || 'Fout bij inloggen met Google');
     }
   };
 
@@ -75,9 +75,9 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           <h1 className="text-2xl font-black text-white">Admin Holland</h1>
           <p className="text-blue-400 text-sm font-medium">Boekhouder Connect</p>
           <p className="text-slate-400 mt-2">
-            {mode === 'login' && 'Zaloguj się do swojego konta'}
-            {mode === 'register' && 'Stwórz nowe konto'}
-            {mode === 'forgot' && 'Zresetuj hasło'}
+            {mode === 'login' && 'Log in op je account'}
+            {mode === 'register' && 'Maak een nieuw account aan'}
+            {mode === 'forgot' && 'Wachtwoord resetten'}
           </p>
         </div>
 
@@ -103,7 +103,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
             {mode === 'register' && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Imię i nazwisko
+                  Volledige naam
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -111,7 +111,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Jan Kowalski"
+                    placeholder="Jan de Vries"
                     required
                     className="w-full pl-10 pr-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   />
@@ -122,7 +122,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
             {/* Email Field */}
             <div>
               <label className="block text-sm font-medium text-slate-300 mb-2">
-                Adres e-mail
+                E-mailadres
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -141,7 +141,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
             {mode !== 'forgot' && (
               <div>
                 <label className="block text-sm font-medium text-slate-300 mb-2">
-                  Hasło
+                  Wachtwoord
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
@@ -173,7 +173,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
                   onClick={() => setMode('forgot')}
                   className="text-sm text-blue-400 hover:text-blue-300 transition-colors"
                 >
-                  Zapomniałeś hasła?
+                  Wachtwoord vergeten?
                 </button>
               </div>
             )}
@@ -185,9 +185,9 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
               className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
             >
               {loading && <Loader2 className="w-5 h-5 animate-spin" />}
-              {mode === 'login' && 'Zaloguj się'}
-              {mode === 'register' && 'Zarejestruj się'}
-              {mode === 'forgot' && 'Wyślij link'}
+              {mode === 'login' && 'Inloggen'}
+              {mode === 'register' && 'Registreren'}
+              {mode === 'forgot' && 'Link versturen'}
             </button>
           </form>
 
@@ -196,7 +196,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
             <>
               <div className="flex items-center my-6">
                 <div className="flex-1 border-t border-white/10"></div>
-                <span className="px-4 text-sm text-slate-500">lub</span>
+                <span className="px-4 text-sm text-slate-500">of</span>
                 <div className="flex-1 border-t border-white/10"></div>
               </div>
 
@@ -211,7 +211,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                Kontynuuj z Google
+                Doorgaan met Google
               </button>
             </>
           )}
@@ -220,23 +220,23 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
           <div className="mt-6 text-center text-sm text-slate-400">
             {mode === 'login' && (
               <>
-                Nie masz konta?{' '}
+                Nog geen account?{' '}
                 <button
                   onClick={() => { setMode('register'); setError(null); setMessage(null); }}
                   className="text-blue-400 hover:text-blue-300 font-medium"
                 >
-                  Zarejestruj się
+                  Registreren
                 </button>
               </>
             )}
             {mode === 'register' && (
               <>
-                Masz już konto?{' '}
+                Heb je al een account?{' '}
                 <button
                   onClick={() => { setMode('login'); setError(null); setMessage(null); }}
                   className="text-blue-400 hover:text-blue-300 font-medium"
                 >
-                  Zaloguj się
+                  Inloggen
                 </button>
               </>
             )}
@@ -245,7 +245,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
                 onClick={() => { setMode('login'); setError(null); setMessage(null); }}
                 className="text-blue-400 hover:text-blue-300 font-medium"
               >
-                ← Powrót do logowania
+                ← Terug naar inloggen
               </button>
             )}
           </div>
@@ -253,7 +253,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({ onSuccess }) => {
 
         {/* Footer */}
         <p className="text-center text-slate-500 text-xs mt-6">
-          © 2025 Boekhouder Connect. Wszystkie prawa zastrzeżone.
+          © 2025 Boekhouder Connect. Alle rechten voorbehouden.
         </p>
       </div>
     </div>
