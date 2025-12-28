@@ -474,6 +474,40 @@ CREATE POLICY "Org members can create channels" ON chat_channels
         organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
     );
 
+-- Chat Channel Members: Org members can manage
+CREATE POLICY "Org members can view channel members" ON chat_channel_members
+    FOR SELECT USING (
+        channel_id IN (
+            SELECT id FROM chat_channels 
+            WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Org members can add channel members" ON chat_channel_members
+    FOR INSERT WITH CHECK (
+        -- Channel must belong to user's organization
+        channel_id IN (
+            SELECT id FROM chat_channels 
+            WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+        )
+        AND
+        -- User being added must be in the same organization
+        user_id IN (
+            SELECT id FROM profiles 
+            WHERE organization_id IN (SELECT organization_id FROM profiles WHERE id = auth.uid())
+        )
+    );
+
+CREATE POLICY "Users can update own channel membership" ON chat_channel_members
+    FOR UPDATE USING (user_id = auth.uid());
+
+CREATE POLICY "Users or admins can remove channel members" ON chat_channel_members
+    FOR DELETE USING (
+        user_id = auth.uid()
+        OR EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'Admin')
+        OR channel_id IN (SELECT id FROM chat_channels WHERE created_by = auth.uid())
+    );
+
 -- Chat Messages: Channel members can access
 CREATE POLICY "Channel members can view messages" ON chat_messages
     FOR SELECT USING (
@@ -719,6 +753,8 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Enable realtime for specific tables
 ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE chat_channels;
+ALTER PUBLICATION supabase_realtime ADD TABLE chat_channel_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE notifications;
 ALTER PUBLICATION supabase_realtime ADD TABLE tasks;
 

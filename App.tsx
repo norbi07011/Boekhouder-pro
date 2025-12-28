@@ -4,7 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { TaskList } from './components/TaskList';
 import { Chat } from './components/Chat';
-import { Documents } from './components/Documents';
+// Documents component removed
 import { Team } from './components/Team';
 import { Profile } from './components/Profile';
 import { Calendar } from './components/Calendar';
@@ -314,8 +314,7 @@ const App: React.FC = () => {
             language={language}
             templates={templates}
         />;
-      case 'documents':
-        return <Documents language={language} />;
+      // Documents page removed
       case 'settings':
         return <Settings 
           language={language} 

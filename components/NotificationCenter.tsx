@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Check, CheckCheck, Trash2, X, Clock, MessageSquare, CheckSquare, FileText, AlertCircle, Settings } from 'lucide-react';
+import { Bell, Check, CheckCheck, Trash2, X, Clock, MessageSquare, CheckSquare, FileText, AlertCircle, Settings, Volume2 } from 'lucide-react';
 import { notificationsService } from '../src/services/notificationsService';
 import { Language } from '../types';
 import { DICTIONARY } from '../constants';
+import { pushNotificationService } from '../src/services/pushNotificationService';
 
 interface Notification {
   id: string;
@@ -81,14 +82,21 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ language
         setNotifications(prev => [newNotification as Notification, ...prev]);
         setUnreadCount(prev => prev + 1);
 
+        // Play notification sound
+        pushNotificationService.playSound().catch(console.warn);
+        
+        // Update app badge
+        pushNotificationService.updateBadge().catch(console.warn);
+
         // Show browser notification if permitted
         if ('Notification' in window && Notification.permission === 'granted') {
           const browserNotif = new Notification(newNotification.title, {
             body: newNotification.body || '',
-            icon: '/logo.jpg',
-            badge: '/logo.jpg',
+            icon: '/icons/icon-192x192.png',
+            badge: '/icons/badge-72x72.png',
             tag: newNotification.id,
             requireInteraction: newNotification.type === 'task_due',
+            silent: false, // Allow sound
           });
 
           browserNotif.onclick = () => {

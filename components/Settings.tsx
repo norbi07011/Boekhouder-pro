@@ -5,6 +5,7 @@ import { DICTIONARY } from '../constants';
 import { Bell, Shield, Globe, Monitor, Smartphone, Volume2, Lock, Eye, Save, Check, Briefcase, Calculator, Clock, MessageSquare, CheckSquare, AlertTriangle, Key, Loader2 } from 'lucide-react';
 import { settingsService } from '../src/services/notificationsService';
 import { authService } from '../src/services/authService';
+import { InstallPWA } from './InstallPWA';
 
 interface SettingsProps {
   language: Language;
@@ -290,7 +291,16 @@ export const Settings: React.FC<SettingsProps> = ({
                 {/* NOTIFICATIONS TAB */}
                 {activeTab === 'notifications' && (
                     <div className="space-y-8 animate-[fadeIn_0.3s]">
-                        {/* Browser Permission Banner */}
+                        {/* PWA Install & Push Notifications */}
+                        <div>
+                            <h3 className="text-lg font-bold text-slate-800 dark:text-white mb-4 flex items-center">
+                                <Smartphone className="w-5 h-5 mr-2 text-blue-500" /> 
+                                {language === 'PL' ? 'Aplikacja desktopowa' : language === 'NL' ? 'Desktop applicatie' : 'Masaüstü uygulaması'}
+                            </h3>
+                            <InstallPWA language={language} />
+                        </div>
+
+                        {/* Browser Permission Banner - only show if PWA section didn't handle it */}
                         {'Notification' in window && Notification.permission !== 'granted' && (
                           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700/50 rounded-xl p-4 flex items-center justify-between">
                             <div className="flex items-center gap-3">

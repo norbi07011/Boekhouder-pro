@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { LayoutDashboard, CheckSquare, Calendar, MessageSquare, FileText, Settings, Globe, Users, UserCircle, X, LogOut } from 'lucide-react';
+import { LayoutDashboard, CheckSquare, Calendar, MessageSquare, Settings, Globe, Users, UserCircle, X, LogOut } from 'lucide-react';
 import { Language } from '../types';
 import { DICTIONARY } from '../constants';
 
@@ -23,7 +23,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView, l
     { id: 'calendar', icon: Calendar, label: t.calendar },
     { id: 'team', icon: Users, label: t.team },
     { id: 'chat', icon: MessageSquare, label: t.chat },
-    { id: 'documents', icon: FileText, label: t.documents },
   ];
 
   return (
