@@ -3,7 +3,30 @@ import { Bell, Check, CheckCheck, Trash2, X, Clock, MessageSquare, CheckSquare, 
 import { notificationsService } from '../src/services/notificationsService';
 import { Language } from '../types';
 import { DICTIONARY } from '../constants';
-import { pushNotificationService } from '../src/services/pushNotificationService';
+
+// Simple notification sound player
+const playNotificationSound = () => {
+  try {
+    const audio = new Audio('/sounds/notification.mp3');
+    audio.volume = 0.5;
+    audio.play().catch(() => {});
+  } catch (e) {
+    // Ignore audio errors
+  }
+};
+
+// Update badge count
+const updateBadge = async (count: number) => {
+  if ('setAppBadge' in navigator) {
+    try {
+      if (count > 0) {
+        await (navigator as any).setAppBadge(count);
+      } else {
+        await (navigator as any).clearAppBadge();
+      }
+    } catch (e) {}
+  }
+};
 
 interface Notification {
   id: string;
@@ -83,10 +106,10 @@ export const NotificationCenter: React.FC<NotificationCenterProps> = ({ language
         setUnreadCount(prev => prev + 1);
 
         // Play notification sound
-        pushNotificationService.playSound().catch(console.warn);
+        playNotificationSound();
         
         // Update app badge
-        pushNotificationService.updateBadge().catch(console.warn);
+        updateBadge(unreadCount + 1);
 
         // Show browser notification if permitted
         if ('Notification' in window && Notification.permission === 'granted') {

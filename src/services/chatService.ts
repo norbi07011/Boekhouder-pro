@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import type { ChatChannel, ChatMessage, InsertTables } from '../types/database.types';
+import { notificationsService } from './notificationsService';
 
 export const chatService = {
   // ============ CHANNELS ============
@@ -208,7 +209,68 @@ export const chatService = {
         .insert(attachmentRecords);
     }
 
+    // Send notifications to other channel members
+    this.notifyChannelMembers(channelId, session.user.id, message).catch(console.error);
+
     return message;
+  },
+
+  // Notify all channel members about new message (except sender)
+  async notifyChannelMembers(channelId: string, senderId: string, message: ChatMessage): Promise<void> {
+    try {
+      // Get channel info
+      const { data: channel } = await supabase
+        .from('chat_channels')
+        .select('name, type')
+        .eq('id', channelId)
+        .single();
+
+      // Get sender info
+      const { data: sender } = await supabase
+        .from('profiles')
+        .select('name')
+        .eq('id', senderId)
+        .single();
+
+      // Get all channel members except sender
+      const { data: members } = await supabase
+        .from('chat_channel_members')
+        .select('user_id')
+        .eq('channel_id', channelId)
+        .neq('user_id', senderId);
+
+      if (!members || members.length === 0) return;
+
+      const senderName = sender?.name || 'Ktoś';
+      const channelName = channel?.type === 'dm' ? senderName : (channel?.name || 'Chat');
+      const messagePreview = message.text.length > 50 
+        ? message.text.substring(0, 50) + '...' 
+        : message.text;
+
+      // Create notifications for all members
+      const notifications = members.map(member => ({
+        user_id: member.user_id,
+        type: 'message' as const,
+        title: channel?.type === 'dm' 
+          ? `Nowa wiadomość od ${senderName}`
+          : `${senderName} w ${channelName}`,
+        body: messagePreview,
+        link: 'chat'
+      }));
+
+      // Insert all notifications at once
+      const { error } = await supabase
+        .from('notifications')
+        .insert(notifications);
+
+      if (error) {
+        console.error('Error creating chat notifications:', error);
+      } else {
+        console.log(`[Chat] Sent notifications to ${members.length} members`);
+      }
+    } catch (error) {
+      console.error('Error notifying channel members:', error);
+    }
   },
 
   // Edit message

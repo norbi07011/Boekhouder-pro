@@ -23,6 +23,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [profile, setProfile] = useState<Profile | null>(null);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [initialized, setInitialized] = useState(false);
 
   // Fetch profile and settings - simplified without complex timeouts
   const fetchUserData = async (userId: string) => {
@@ -62,89 +63,86 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Initialize auth state
+  // Initialize auth state - ONCE only
   useEffect(() => {
+    // Prevent double initialization (React StrictMode)
+    if (initialized) return;
+    setInitialized(true);
+
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
     
     const initAuth = async () => {
       console.log('[Auth] Starting initialization...');
       
       try {
-        // Check for old session key and remove it
-        const oldKey = 'sb-rncjcsguvqykmpkcwmlj-auth-token';
-        if (localStorage.getItem(oldKey)) {
-          console.log('[Auth] Removing old session key');
-          localStorage.removeItem(oldKey);
-        }
-
-        console.log('[Auth] Calling getSession...');
+        // Quick check - just get session from storage, don't wait for network
         const { data: { session }, error } = await supabase.auth.getSession();
-        console.log('[Auth] getSession returned:', { hasSession: !!session, error });
+        
+        if (!isMounted) return;
         
         if (error) {
           console.error('[Auth] Session error:', error);
-          await supabase.auth.signOut();
-          if (isMounted) setLoading(false);
+          // Clear any corrupted session
+          try { await supabase.auth.signOut(); } catch {}
+          setLoading(false);
           return;
         }
         
-        if (session?.user && isMounted) {
+        if (session?.user) {
           console.log('[Auth] User found:', session.user.email);
           setUser({
             id: session.user.id,
             email: session.user.email!
           });
-          await fetchUserData(session.user.id);
+          // Fetch user data in background - don't block
+          fetchUserData(session.user.id).catch(console.error);
         } else {
           console.log('[Auth] No session found');
         }
       } catch (error) {
         console.error('[Auth] Init error:', error);
-        try {
-          await supabase.auth.signOut();
-        } catch {}
-      } finally {
-        if (isMounted) {
-          console.log('[Auth] Setting loading to false');
-          setLoading(false);
-        }
+        try { await supabase.auth.signOut(); } catch {}
+      }
+      
+      // Always stop loading
+      if (isMounted) {
+        console.log('[Auth] Initialization complete');
+        setLoading(false);
       }
     };
 
-    // Fallback timeout - if auth takes more than 5 seconds, force stop loading
-    timeoutId = setTimeout(() => {
-      if (isMounted) {
-        console.warn('[Auth] Timeout - forcing loading to stop');
-        setLoading(false);
-      }
-    }, 5000);
-
+    // Start immediately
     initAuth();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        console.log('[Auth] State change:', event);
+        
         if (event === 'SIGNED_IN' && session?.user) {
           setUser({
             id: session.user.id,
             email: session.user.email!
           });
-          await fetchUserData(session.user.id);
+          fetchUserData(session.user.id).catch(console.error);
+          setLoading(false);
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
           setSettings(null);
+          setLoading(false);
+        } else if (event === 'TOKEN_REFRESHED') {
+          // Token refreshed - keep user logged in
+          console.log('[Auth] Token refreshed');
         }
       }
     );
 
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [initialized]);
 
   const signIn = async (email: string, password: string) => {
     const authUser = await authService.signIn(email, password);

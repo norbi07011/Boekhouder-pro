@@ -1,174 +1,149 @@
 // Service Worker for Boekhouder Connect PWA
-const CACHE_NAME = 'boekhouder-v2';
-const NOTIFICATION_SOUND_URL = '/sounds/notification.mp3';
+// Version 3 - Minimal, non-blocking
+const CACHE_NAME = 'boekhouder-v3';
 
-// Only cache static assets, not HTML
-const urlsToCache = [
-  '/sounds/notification.mp3',
-  '/icons/icon-192x192.png',
-  '/icons/icon-512x512.png'
-];
-
-// Install event - cache only essential assets
+// Install - just skip waiting, don't block
 self.addEventListener('install', (event) => {
-  console.log('[SW] Installing Service Worker...');
-  // Skip caching during development - just activate immediately
+  console.log('[SW] Installing v3...');
   self.skipWaiting();
 });
 
-// Activate event - clean old caches
+// Activate - claim clients immediately
 self.addEventListener('activate', (event) => {
-  console.log('[SW] Activating Service Worker...');
+  console.log('[SW] Activating v3...');
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            console.log('[SW] Deleting old cache:', cacheName);
-            return caches.delete(cacheName);
-          }
+        cacheNames.filter(name => name !== CACHE_NAME).map(name => {
+          console.log('[SW] Removing old cache:', name);
+          return caches.delete(name);
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-// Fetch event - NETWORK FIRST (always try network, fallback to cache)
+// Fetch - NEVER block page loads
+// Only intercept sounds/icons for offline support
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET requests
-  if (event.request.method !== 'GET') return;
+  const url = event.request.url;
   
-  // Skip API calls, supabase, and external requests - let them pass through
-  if (event.request.url.includes('supabase') || 
-      event.request.url.includes('/api/') ||
-      event.request.url.includes('googleapis.com') ||
-      event.request.url.includes('esm.sh') ||
-      event.request.url.includes('tailwindcss.com') ||
-      event.request.url.includes('fonts.googleapis.com')) {
+  // CRITICAL: Never intercept navigation - let browser handle F5/refresh
+  if (event.request.mode === 'navigate') {
     return;
   }
-
-  // For HTML pages - always use network
-  if (event.request.mode === 'navigate' || 
-      event.request.destination === 'document' ||
-      event.request.url.endsWith('.html') ||
-      event.request.url.endsWith('/')) {
+  
+  // Never intercept document loads
+  if (event.request.destination === 'document') {
+    return;
+  }
+  
+  // Skip non-GET
+  if (event.request.method !== 'GET') {
+    return;
+  }
+  
+  // Skip external requests
+  if (!url.startsWith(self.location.origin)) {
+    return;
+  }
+  
+  // Skip all JS, CSS, HTML, API calls - let them load normally
+  if (url.includes('supabase') || 
+      url.includes('/api/') ||
+      url.includes('googleapis') ||
+      url.includes('esm.sh') ||
+      url.includes('tailwindcss') ||
+      url.endsWith('.js') ||
+      url.endsWith('.css') ||
+      url.endsWith('.html') ||
+      url.endsWith('.svg') ||
+      url.endsWith('.woff') ||
+      url.endsWith('.woff2')) {
+    return;
+  }
+  
+  // Only cache sounds and icons (for offline notification sounds)
+  if (url.includes('/sounds/') || url.includes('/icons/')) {
     event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
+      fetch(event.request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request))
     );
     return;
   }
-
-  // For other assets - network first, cache fallback
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        // Only cache successful responses for sounds and icons
-        if (response.ok && 
-            (event.request.url.includes('/sounds/') || 
-             event.request.url.includes('/icons/'))) {
-          const responseToCache = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return response;
-      })
-      .catch(() => caches.match(event.request))
-  );
+  
+  // Everything else - don't intercept
 });
 
-// Push notification received
+// Push notification
 self.addEventListener('push', (event) => {
-  console.log('[SW] Push received:', event);
+  console.log('[SW] Push received');
   
   let data = {
     title: 'Boekhouder Connect',
     body: 'Nowe powiadomienie',
     icon: '/icons/icon-192x192.png',
-    badge: '/icons/badge-72x72.png',
-    tag: 'default',
-    data: { url: '/' }
+    badge: '/icons/badge-72x72.png'
   };
 
   try {
     if (event.data) {
-      const payload = event.data.json();
-      data = { ...data, ...payload };
+      data = { ...data, ...event.data.json() };
     }
   } catch (e) {
-    console.error('[SW] Error parsing push data:', e);
+    console.error('[SW] Push parse error:', e);
   }
 
-  const options = {
-    body: data.body,
-    icon: data.icon || '/icons/icon-192x192.png',
-    badge: data.badge || '/icons/badge-72x72.png',
-    tag: data.tag || 'notification-' + Date.now(),
-    vibrate: [200, 100, 200],
-    requireInteraction: data.requireInteraction || false,
-    actions: data.actions || [
-      { action: 'open', title: 'Otwórz' },
-      { action: 'dismiss', title: 'Zamknij' }
-    ],
-    data: data.data || { url: '/' },
-    silent: false
-  };
-
   event.waitUntil(
-    self.registration.showNotification(data.title, options).then(() => {
-      // Play notification sound
-      return self.clients.matchAll({ type: 'window' }).then((clients) => {
-        clients.forEach((client) => {
-          client.postMessage({
-            type: 'PLAY_NOTIFICATION_SOUND',
-            sound: NOTIFICATION_SOUND_URL
-          });
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: data.icon,
+      badge: data.badge,
+      tag: data.tag || 'notification',
+      data: data.data || { url: '/' },
+      requireInteraction: false
+    }).then(() => {
+      return self.clients.matchAll({ type: 'window' }).then(clients => {
+        clients.forEach(client => {
+          client.postMessage({ type: 'PLAY_NOTIFICATION_SOUND' });
         });
       });
     })
   );
 });
 
-// Notification click handler
+// Notification click
 self.addEventListener('notificationclick', (event) => {
-  console.log('[SW] Notification clicked:', event);
   event.notification.close();
-
-  const action = event.action;
+  
+  if (event.action === 'dismiss') return;
+  
   const url = event.notification.data?.url || '/';
-
-  if (action === 'dismiss') {
-    return;
-  }
-
+  
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Try to focus existing window
-      for (const client of clientList) {
-        if (client.url.includes(self.location.origin) && 'focus' in client) {
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
+      for (const client of clients) {
+        if (client.url.includes(self.location.origin)) {
           client.focus();
-          client.postMessage({
-            type: 'NOTIFICATION_CLICKED',
-            url: url
-          });
+          client.postMessage({ type: 'NOTIFICATION_CLICKED', url });
           return;
         }
       }
-      // Open new window if no existing window
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(url);
-      }
+      return self.clients.openWindow(url);
     })
   );
 });
 
-// Handle badge updates
+// Message handler
 self.addEventListener('message', (event) => {
-  console.log('[SW] Message received:', event.data);
-  
-  if (event.data.type === 'UPDATE_BADGE') {
+  if (event.data?.type === 'UPDATE_BADGE') {
     const count = event.data.count || 0;
     if ('setAppBadge' in navigator) {
       if (count > 0) {
@@ -179,20 +154,7 @@ self.addEventListener('message', (event) => {
     }
   }
   
-  if (event.data.type === 'SKIP_WAITING') {
+  if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting();
   }
 });
-
-// Periodic sync for background updates (if supported)
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === 'check-notifications') {
-    event.waitUntil(checkForNewNotifications());
-  }
-});
-
-async function checkForNewNotifications() {
-  // This would typically make an API call to check for new notifications
-  // For now, we rely on Supabase realtime subscriptions in the main app
-  console.log('[SW] Checking for notifications...');
-}

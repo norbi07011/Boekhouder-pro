@@ -41,7 +41,7 @@ export const usePushNotifications = (): UsePushNotificationsReturn => {
   const [canInstall, setCanInstall] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false - don't block UI
   const [error, setError] = useState<string | null>(null);
 
   // Initialize
@@ -53,33 +53,30 @@ export const usePushNotifications = (): UsePushNotificationsReturn => {
         setIsSupported(supported);
 
         if (!supported) {
-          setLoading(false);
           return;
         }
 
-        // Initialize service
-        await pushNotificationService.init();
-
-        // Get current permission
-        setPermission(pushNotificationService.getPermissionStatus());
-
-        // Check if subscribed
-        const subscription = await pushNotificationService.getSubscription();
-        setIsSubscribed(!!subscription);
-
-        // Check if installed as PWA
+        // Check if installed as PWA first (sync operation)
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
                             (window.navigator as any).standalone === true;
         setIsInstalled(isStandalone);
 
-        // Fetch initial unread count
-        await fetchUnreadCount();
+        // Get current permission (sync)
+        setPermission(pushNotificationService.getPermissionStatus());
 
-        setLoading(false);
+        // Initialize service in background
+        pushNotificationService.init().then(async () => {
+          // Check if subscribed
+          const subscription = await pushNotificationService.getSubscription();
+          setIsSubscribed(!!subscription);
+        }).catch(console.warn);
+
+        // Fetch initial unread count in background
+        fetchUnreadCount().catch(console.warn);
+
       } catch (err: any) {
         console.error('Failed to initialize push notifications:', err);
         setError(err.message);
-        setLoading(false);
       }
     };
 

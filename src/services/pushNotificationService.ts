@@ -1,16 +1,7 @@
 import { supabase } from '../lib/supabase';
 
-// VAPID public key - you need to generate this
-// Run: npx web-push generate-vapid-keys
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY || '';
-
-interface PushSubscriptionData {
-  endpoint: string;
-  keys: {
-    p256dh: string;
-    auth: string;
-  };
-}
+// VAPID public key - set in environment variable VITE_VAPID_PUBLIC_KEY
+const VAPID_PUBLIC_KEY = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY) || '';
 
 class PushNotificationService {
   private registration: ServiceWorkerRegistration | null = null;
@@ -20,23 +11,25 @@ class PushNotificationService {
 
   // Check if push notifications are supported
   isSupported(): boolean {
-    return 'serviceWorker' in navigator && 
+    return typeof window !== 'undefined' &&
+           'serviceWorker' in navigator && 
            'PushManager' in window && 
            'Notification' in window;
   }
 
   // Check if notifications are enabled
   isEnabled(): boolean {
-    return Notification.permission === 'granted';
+    return typeof window !== 'undefined' && Notification.permission === 'granted';
   }
 
   // Check if notifications are blocked
   isBlocked(): boolean {
-    return Notification.permission === 'denied';
+    return typeof window !== 'undefined' && Notification.permission === 'denied';
   }
 
   // Get current permission status
   getPermissionStatus(): NotificationPermission {
+    if (typeof window === 'undefined') return 'default';
     return Notification.permission;
   }
 
@@ -54,17 +47,25 @@ class PushNotificationService {
       });
       console.log('Service Worker registered:', this.registration);
 
-      // Wait for service worker to be ready
-      await navigator.serviceWorker.ready;
+      // Wait for service worker to be ready (with timeout)
+      const timeoutPromise = new Promise<void>((resolve) => 
+        setTimeout(() => resolve(), 3000)
+      );
+      
+      await Promise.race([navigator.serviceWorker.ready, timeoutPromise]);
 
-      // Preload notification sound
-      await this.preloadSound();
+      // Preload notification sound in background
+      this.preloadSound().catch(() => {});
 
       // Listen for messages from service worker
       this.setupMessageListener();
 
       // Check for existing subscription
-      this.subscription = await this.registration.pushManager.getSubscription();
+      try {
+        this.subscription = await this.registration.pushManager.getSubscription();
+      } catch (e) {
+        console.warn('Could not get push subscription:', e);
+      }
       
       return true;
     } catch (error) {
@@ -76,7 +77,10 @@ class PushNotificationService {
   // Preload notification sound
   private async preloadSound(): Promise<void> {
     try {
-      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioContextClass) return;
+      
+      this.audioContext = new AudioContextClass();
       const response = await fetch('/sounds/notification.mp3');
       const arrayBuffer = await response.arrayBuffer();
       this.notificationSound = await this.audioContext.decodeAudioData(arrayBuffer);
@@ -89,9 +93,9 @@ class PushNotificationService {
   async playSound(): Promise<void> {
     if (!this.audioContext || !this.notificationSound) {
       // Fallback to HTML5 Audio
-      const audio = new Audio('/sounds/notification.mp3');
-      audio.volume = 0.5;
       try {
+        const audio = new Audio('/sounds/notification.mp3');
+        audio.volume = 0.5;
         await audio.play();
       } catch (e) {
         console.warn('Failed to play notification sound:', e);
@@ -100,7 +104,7 @@ class PushNotificationService {
     }
 
     try {
-      // Resume audio context if suspended (browser autoplay policy)
+      // Resume audio context if suspended
       if (this.audioContext.state === 'suspended') {
         await this.audioContext.resume();
       }
@@ -126,7 +130,6 @@ class PushNotificationService {
         this.playSound();
       }
       if (event.data.type === 'NOTIFICATION_CLICKED') {
-        // Handle navigation
         const url = event.data.url;
         if (url && url !== '/') {
           window.location.href = url;
@@ -157,17 +160,16 @@ class PushNotificationService {
     }
 
     if (!VAPID_PUBLIC_KEY) {
-      console.warn('VAPID public key not configured');
+      console.warn('VAPID public key not configured - push disabled');
       return null;
     }
 
     try {
-      // Convert VAPID key to Uint8Array
       const applicationServerKey = this.urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
 
       this.subscription = await this.registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey
+        applicationServerKey: applicationServerKey as BufferSource
       });
 
       console.log('Push subscription:', this.subscription);
@@ -191,28 +193,32 @@ class PushNotificationService {
     }
   }
 
-  // Save subscription to Supabase
+  // Save subscription to Supabase (using any to avoid type issues)
   private async saveSubscription(subscription: PushSubscription): Promise<void> {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
 
     const subscriptionData = subscription.toJSON();
     
-    const { error } = await supabase
-      .from('push_subscriptions')
-      .upsert({
-        user_id: session.user.id,
-        endpoint: subscriptionData.endpoint,
-        p256dh: subscriptionData.keys?.p256dh,
-        auth: subscriptionData.keys?.auth,
-        user_agent: navigator.userAgent,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id,endpoint'
-      });
+    try {
+      const { error } = await (supabase as any)
+        .from('push_subscriptions')
+        .upsert({
+          user_id: session.user.id,
+          endpoint: subscriptionData.endpoint,
+          p256dh: subscriptionData.keys?.p256dh,
+          auth: subscriptionData.keys?.auth,
+          user_agent: navigator.userAgent,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,endpoint'
+        });
 
-    if (error) {
-      console.error('Failed to save push subscription:', error);
+      if (error) {
+        console.error('Failed to save push subscription:', error);
+      }
+    } catch (e) {
+      console.warn('Could not save push subscription:', e);
     }
   }
 
@@ -221,18 +227,22 @@ class PushNotificationService {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
 
-    const { error } = await supabase
-      .from('push_subscriptions')
-      .delete()
-      .eq('user_id', session.user.id)
-      .eq('endpoint', this.subscription?.endpoint);
+    try {
+      const { error } = await (supabase as any)
+        .from('push_subscriptions')
+        .delete()
+        .eq('user_id', session.user.id)
+        .eq('endpoint', this.subscription?.endpoint);
 
-    if (error) {
-      console.error('Failed to remove push subscription:', error);
+      if (error) {
+        console.error('Failed to remove push subscription:', error);
+      }
+    } catch (e) {
+      console.warn('Could not remove push subscription:', e);
     }
   }
 
-  // Show local notification (when app is in foreground)
+  // Show local notification
   async showLocalNotification(title: string, options: NotificationOptions = {}): Promise<void> {
     if (!this.isEnabled()) {
       console.warn('Notifications not enabled');
@@ -250,7 +260,6 @@ class PushNotificationService {
       await this.registration.showNotification(title, {
         icon: '/icons/icon-192x192.png',
         badge: '/icons/badge-72x72.png',
-        vibrate: [200, 100, 200],
         ...options
       });
     } else {

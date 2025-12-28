@@ -73,13 +73,13 @@ export const notificationsService = {
     if (error) throw error;
   },
 
-  // Subscribe to new notifications
+  // Subscribe to new notifications with immediate callback
   subscribeToNotifications(callback: (notification: Notification) => void) {
     return supabase.auth.getSession().then(({ data: { session } }) => {
       if (!session?.user) return null;
 
-      return supabase
-        .channel(`notifications:${session.user.id}`)
+      const channel = supabase
+        .channel(`notifications:${session.user.id}:${Date.now()}`)
         .on(
           'postgres_changes',
           {
@@ -89,10 +89,15 @@ export const notificationsService = {
             filter: `user_id=eq.${session.user.id}`
           },
           (payload) => {
+            console.log('[Notifications] New notification received:', payload.new);
             callback(payload.new as Notification);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          console.log('[Notifications] Subscription status:', status);
+        });
+
+      return channel;
     });
   },
 
