@@ -10,3 +10,24 @@ declare namespace Deno {
 }
 
 declare function serve(handler: (req: Request) => Response | Promise<Response>): void;
+
+// Module declarations for Deno imports
+declare module "https://deno.land/std@0.168.0/http/server.ts" {
+  export function serve(handler: (req: Request) => Response | Promise<Response>): void;
+}
+
+declare module "https://esm.sh/@supabase/supabase-js@2" {
+  export * from "@supabase/supabase-js";
+  export { createClient } from "@supabase/supabase-js";
+}
+
+// Fix for Uint8Array as BodyInit
+interface Body {
+  readonly body: ReadableStream<Uint8Array> | null;
+}
+
+interface RequestInit {
+  body?: BodyInit | Uint8Array | null;
+}
+
+type BodyInit = ReadableStream<Uint8Array> | XMLHttpRequestBodyInit | Uint8Array;

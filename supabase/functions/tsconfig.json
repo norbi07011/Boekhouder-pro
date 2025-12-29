@@ -9,9 +9,8 @@
     "strict": false,
     "noImplicitAny": false,
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "types": []
+    "allowImportingTsExtensions": true
   },
-  "include": ["./**/*.ts"],
+  "include": ["./**/*.ts", "./deno.d.ts"],
   "exclude": []
 }

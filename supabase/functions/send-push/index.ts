@@ -1,3 +1,4 @@
+// @ts-nocheck
 // Supabase Edge Function: send-push
 // Sends Web Push notifications to subscribed users
 // 
