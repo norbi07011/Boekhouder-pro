@@ -70,9 +70,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setInitialized(true);
 
     let isMounted = true;
+    let timeoutId: NodeJS.Timeout;
     
     const initAuth = async () => {
       console.log('[Auth] Starting initialization...');
+      
+      // Safety timeout - never hang more than 5 seconds
+      timeoutId = setTimeout(() => {
+        if (isMounted) {
+          console.warn('[Auth] Timeout - forcing initialization complete');
+          setLoading(false);
+        }
+      }, 5000);
       
       try {
         // Quick check - just get session from storage, don't wait for network
@@ -106,6 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       // Always stop loading
       if (isMounted) {
+        clearTimeout(timeoutId);
         console.log('[Auth] Initialization complete');
         setLoading(false);
       }
@@ -140,6 +150,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
       subscription.unsubscribe();
     };
   }, [initialized]);
