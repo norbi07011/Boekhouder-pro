@@ -70,59 +70,75 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setInitialized(true);
 
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
     
-    const initAuth = async () => {
-      console.log('[Auth] Starting initialization...');
-      
-      // Safety timeout - never hang more than 5 seconds
-      timeoutId = setTimeout(() => {
-        if (isMounted) {
-          console.warn('[Auth] Timeout - forcing initialization complete');
-          setLoading(false);
+    console.log('[Auth] Starting initialization...');
+    
+    // STEP 1: Check localStorage immediately (synchronous, no network)
+    const storageKey = 'boekhouder-auth';
+    let hasStoredSession = false;
+    
+    try {
+      const storedData = localStorage.getItem(storageKey);
+      if (storedData) {
+        const parsed = JSON.parse(storedData);
+        if (parsed?.user?.id && parsed?.user?.email) {
+          console.log('[Auth] Found stored session for:', parsed.user.email);
+          setUser({
+            id: parsed.user.id,
+            email: parsed.user.email
+          });
+          hasStoredSession = true;
+          // Fetch profile in background
+          fetchUserData(parsed.user.id).catch(console.error);
         }
-      }, 5000);
-      
+      }
+    } catch (e) {
+      console.warn('[Auth] Could not read localStorage:', e);
+    }
+    
+    // STEP 2: Stop loading immediately - don't wait for network
+    console.log('[Auth] Initialization complete (sync)');
+    setLoading(false);
+    
+    // STEP 3: Verify session in background (won't block UI)
+    const verifySession = async () => {
       try {
-        // Quick check - just get session from storage, don't wait for network
         const { data: { session }, error } = await supabase.auth.getSession();
         
         if (!isMounted) return;
         
         if (error) {
-          console.error('[Auth] Session error:', error);
-          // Clear any corrupted session
-          try { await supabase.auth.signOut(); } catch {}
-          setLoading(false);
+          console.error('[Auth] Session verification error:', error);
+          // Session invalid - clear it
+          setUser(null);
+          setProfile(null);
+          localStorage.removeItem(storageKey);
           return;
         }
         
         if (session?.user) {
-          console.log('[Auth] User found:', session.user.email);
+          console.log('[Auth] Session verified:', session.user.email);
+          // Update user if different
           setUser({
             id: session.user.id,
             email: session.user.email!
           });
-          // Fetch user data in background - don't block
-          fetchUserData(session.user.id).catch(console.error);
-        } else {
-          console.log('[Auth] No session found');
+          if (!hasStoredSession) {
+            fetchUserData(session.user.id).catch(console.error);
+          }
+        } else if (hasStoredSession) {
+          // Had stored session but it's no longer valid
+          console.log('[Auth] Stored session expired');
+          setUser(null);
+          setProfile(null);
         }
       } catch (error) {
-        console.error('[Auth] Init error:', error);
-        try { await supabase.auth.signOut(); } catch {}
-      }
-      
-      // Always stop loading
-      if (isMounted) {
-        clearTimeout(timeoutId);
-        console.log('[Auth] Initialization complete');
-        setLoading(false);
+        console.error('[Auth] Verification error:', error);
       }
     };
-
-    // Start immediately
-    initAuth();
+    
+    // Run verification in background after a small delay
+    const verifyTimeout = setTimeout(verifySession, 100);
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
@@ -150,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
+      clearTimeout(verifyTimeout);
       subscription.unsubscribe();
     };
   }, [initialized]);
