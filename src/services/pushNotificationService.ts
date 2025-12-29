@@ -1,7 +1,8 @@
 import { supabase } from '../lib/supabase';
 
-// VAPID public key - set in environment variable VITE_VAPID_PUBLIC_KEY
-const VAPID_PUBLIC_KEY = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY) || '';
+// VAPID public key - hardcoded fallback for production
+const VAPID_PUBLIC_KEY = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY) || 
+  'BN3eWOKR9U-Sr7L9gYfGZx-ksptccgigpxKHwwWrZpWvPubAyQ8boWVWKwbdg0Vtg6v828-7SspL4_e3ln8sW6w';
 
 class PushNotificationService {
   private registration: ServiceWorkerRegistration | null = null;
